@@ -1,0 +1,6 @@
+dados.db
+__pycache__/
+*.pyc
+.env
+*.db-shm
+*.db-wal

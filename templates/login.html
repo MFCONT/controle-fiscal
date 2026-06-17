@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login — Controle Fiscal</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body{background:linear-gradient(135deg,#1e4d78 0%,#2e75b6 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .card{border:none;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.3);}
+  .logo{font-size:2.4rem;font-weight:700;color:#1e4d78;letter-spacing:-1px;}
+  .logo span{color:#2e75b6;}
+  .btn-primary{background:#1e4d78;border-color:#1e4d78;}
+  .btn-primary:hover{background:#16375a;border-color:#16375a;}
+</style>
+</head>
+<body>
+<div class="card p-4" style="width:360px">
+  <div class="text-center mb-4">
+    <div class="logo">fiscal<span>ctrl</span></div>
+    <div class="text-muted small">Setor Fiscal — Controle de Atividades</div>
+  </div>
+  {% if erro %}
+  <div class="alert alert-danger py-2">{{ erro }}</div>
+  {% endif %}
+  <form method="post">
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Usuário</label>
+      <input name="nome" class="form-control" autofocus required>
+    </div>
+    <div class="mb-4">
+      <label class="form-label fw-semibold">Senha</label>
+      <input name="senha" type="password" class="form-control" required>
+    </div>
+    <button class="btn btn-primary w-100">Entrar</button>
+  </form>
+</div>
+</body>
+</html>

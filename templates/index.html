@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle Fiscal</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <span class="brand-logo">fiscal<b>ctrl</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="#" class="nav-item active" data-tab="atividades"><i class="bi bi-list-check"></i> Atividades</a>
+    <a href="#" class="nav-item" data-tab="calendario"><i class="bi bi-calendar3"></i> Calendário</a>
+    <a href="#" class="nav-item" data-tab="dashboard"><i class="bi bi-bar-chart-fill"></i> Dashboard</a>
+    <a href="#" class="nav-item" data-tab="relatorios"><i class="bi bi-file-earmark-pdf"></i> Relatórios</a>
+    <a href="#" class="nav-item" data-tab="gerenciar"><i class="bi bi-gear-fill"></i> Gerenciar</a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="user-avatar" id="userAvatar">{{ usuario[0]|upper }}</div>
+      <div>
+        <div class="user-name">{{ usuario }}</div>
+        <div class="user-role">{% if admin %}Administrador{% else %}Usuário{% endif %}</div>
+      </div>
+    </div>
+    <a href="/logout" class="btn-logout" title="Sair"><i class="bi bi-box-arrow-right"></i></a>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main-content" id="mainContent">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <button class="btn-menu" id="btnMenu"><i class="bi bi-list"></i></button>
+    <div class="month-nav" id="monthNav">
+      <button class="btn-nav" id="btnPrimeiro" title="Início do ano"><i class="bi bi-chevron-double-left"></i></button>
+      <button class="btn-nav" id="btnAnterior"><i class="bi bi-chevron-left"></i></button>
+      <span class="month-label" id="monthLabel">—</span>
+      <button class="btn-nav" id="btnProximo"><i class="bi bi-chevron-right"></i></button>
+      <button class="btn-nav" id="btnHoje" title="Mês atual"><i class="bi bi-house"></i></button>
+    </div>
+    <div class="topbar-right">
+      <span id="alertaVencimento" class="badge bg-danger me-2" style="display:none"></span>
+    </div>
+  </div>
+
+  <!-- TAB: ATIVIDADES -->
+  <div class="tab-pane active" id="tab-atividades">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-list-check"></i> Atividades</h5>
+      <div class="d-flex gap-2 flex-wrap">
+        <select class="form-select form-select-sm" id="filtroResp" style="width:160px">
+          <option value="Todos">Todos os responsáveis</option>
+        </select>
+        <select class="form-select form-select-sm" id="filtroStatus" style="width:150px">
+          <option value="Todos">Todos os status</option>
+          <option>Pendente</option>
+          <option>Em Andamento</option>
+          <option>Realizada</option>
+          <option>Não Realizada</option>
+        </select>
+        <button class="btn btn-sm btn-primary" id="btnNovaAtividade"><i class="bi bi-plus-lg"></i> Nova</button>
+      </div>
+    </div>
+
+    <!-- cards resumo -->
+    <div class="summary-cards" id="summaryCards"></div>
+
+    <!-- tabela -->
+    <div class="table-wrapper">
+      <table class="table-ativ" id="tabelaAtiv">
+        <thead>
+          <tr>
+            <th>Responsável</th><th>Atividade</th><th>Tipo</th>
+            <th>Prazo</th><th>Status</th><th>Tempo</th><th>Obs</th><th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyAtiv"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB: CALENDÁRIO -->
+  <div class="tab-pane" id="tab-calendario">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-calendar3"></i> Calendário</h5>
+      <div class="d-flex gap-2 align-items-center">
+        <select class="form-select form-select-sm" id="calFiltroResp" style="width:180px">
+          <option value="Todos">Todos os responsáveis</option>
+        </select>
+        <div class="cal-legenda d-flex gap-3 ms-2">
+          <span class="leg-item"><span class="leg-dot" style="background:#28a745"></span>Realizada</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#ffc107"></span>Em Andamento</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#dc3545"></span>Não Realizada</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#6c757d"></span>Pendente</span>
+        </div>
+      </div>
+    </div>
+    <!-- grade do calendário -->
+    <div class="cal-container">
+      <div class="cal-header-dias">
+        <div>Dom</div><div>Seg</div><div>Ter</div>
+        <div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+  </div>
+
+  <!-- TAB: DASHBOARD -->
+  <div class="tab-pane" id="tab-dashboard">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-bar-chart-fill"></i> Dashboard</h5>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card"><h6>Status das Atividades</h6><canvas id="chartStatus"></canvas></div>
+      <div class="chart-card"><h6>Por Responsável</h6><canvas id="chartResp"></canvas></div>
+      <div class="chart-card"><h6>Horas por Responsável</h6><canvas id="chartHoras"></canvas></div>
+      <div class="chart-card chart-wide"><h6>Tendência 6 Meses</h6><canvas id="chartTend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TAB: RELATÓRIOS -->
+  <div class="tab-pane" id="tab-relatorios">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-file-earmark-pdf"></i> Relatórios</h5>
+    </div>
+    <div class="card p-4" style="max-width:520px">
+      <div class="mb-3">
+        <label class="form-label">Mês/Ano</label>
+        <input class="form-control" id="relMesAno" readonly>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Responsável</label>
+        <select class="form-select" id="relResp">
+          <option value="Todos">Todos</option>
+        </select>
+      </div>
+      <button class="btn btn-danger w-100" id="btnGerarPdf">
+        <i class="bi bi-file-earmark-pdf"></i> Gerar PDF
+      </button>
+    </div>
+  </div>
+
+  <!-- TAB: GERENCIAR -->
+  <div class="tab-pane" id="tab-gerenciar">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-gear-fill"></i> Gerenciar</h5>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="gerTabs">
+      <li class="nav-item"><a class="nav-link active" href="#" data-ger="responsaveis">Responsáveis</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-ger="ocultas">Atividades Ocultas</a></li>
+      {% if admin %}
+      <li class="nav-item"><a class="nav-link" href="#" data-ger="usuarios">Usuários</a></li>
+      {% endif %}
+      <li class="nav-item"><a class="nav-link" href="#" data-ger="senha">Alterar Senha</a></li>
+    </ul>
+
+    <div id="ger-responsaveis" class="ger-pane active">
+      <button class="btn btn-sm btn-primary mb-3" id="btnNovoResp"><i class="bi bi-plus-lg"></i> Novo</button>
+      <div id="listaResps"></div>
+    </div>
+
+    <div id="ger-ocultas" class="ger-pane">
+      <p class="text-muted small">Atividades padrão que foram ocultadas. Clique em Restaurar para reativá-las.</p>
+      <div id="listaOcultas"></div>
+    </div>
+
+    {% if admin %}
+    <div id="ger-usuarios" class="ger-pane">
+      <button class="btn btn-sm btn-primary mb-3" id="btnNovoUsuario"><i class="bi bi-plus-lg"></i> Novo Usuário</button>
+      <div id="listaUsuarios"></div>
+    </div>
+    {% endif %}
+
+    <div id="ger-senha" class="ger-pane">
+      <div style="max-width:360px">
+        <div class="mb-3">
+          <label class="form-label">Nova Senha</label>
+          <input type="password" class="form-control" id="novaSenha">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Confirmar</label>
+          <input type="password" class="form-control" id="confirmarSenha">
+        </div>
+        <button class="btn btn-primary" id="btnSalvarSenha">Salvar Senha</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main-content -->
+
+<!-- MODAL: detalhes do dia -->
+<div class="modal fade" id="modalDia" tabindex="-1">
+<div class="modal-dialog modal-lg">
+<div class="modal-content">
+  <div class="modal-header" id="modalDiaHeader">
+    <h5 class="modal-title" id="modalDiaTitulo"></h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body p-0">
+    <table class="table table-hover mb-0" style="font-size:.88rem">
+      <thead class="table-light">
+        <tr><th>Responsável</th><th>Atividade</th><th>Tipo</th><th>Status</th><th>Tempo</th><th></th></tr>
+      </thead>
+      <tbody id="modalDiaBody"></tbody>
+    </table>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Fechar</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: editar/nova atividade -->
+<div class="modal fade" id="modalAtiv" tabindex="-1">
+<div class="modal-dialog modal-lg">
+<div class="modal-content">
+  <div class="modal-header bg-primary text-white">
+    <h5 class="modal-title" id="modalAtivTitulo">Atividade</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="editId">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Atividade *</label>
+        <input class="form-control" id="editNome">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Responsável *</label>
+        <select class="form-select" id="editResp"></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tipo</label>
+        <select class="form-select" id="editTipo">
+          <option>Diária</option><option>Mensal</option><option>Declaração</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Prazo (dia do mês)</label>
+        <input type="number" class="form-control" id="editPrazo" min="1" max="31" placeholder="—">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="editStatus">
+          <option>Pendente</option><option>Em Andamento</option>
+          <option>Realizada</option><option>Não Realizada</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tempo (hh:mm)</label>
+        <input class="form-control" id="editTempo" placeholder="00:00">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label">Observação</label>
+        <input class="form-control" id="editObs">
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button class="btn btn-primary" id="btnSalvarAtiv">Salvar</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: novo responsável -->
+<div class="modal fade" id="modalResp" tabindex="-1">
+<div class="modal-dialog modal-sm">
+<div class="modal-content">
+  <div class="modal-header bg-primary text-white">
+    <h5 class="modal-title">Novo Responsável</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <div class="mb-2">
+      <label class="form-label">Nome</label>
+      <input class="form-control" id="novoRespNome">
+    </div>
+    <div class="mb-2">
+      <label class="form-label">Cor</label>
+      <input type="color" class="form-control form-control-color w-100" id="novoRespCor" value="#2E75B6">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button class="btn btn-primary" id="btnSalvarResp">Salvar</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: novo usuário -->
+<div class="modal fade" id="modalUsuario" tabindex="-1">
+<div class="modal-dialog modal-sm">
+<div class="modal-content">
+  <div class="modal-header bg-primary text-white">
+    <h5 class="modal-title">Novo Usuário</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <div class="mb-2">
+      <label class="form-label">Nome</label>
+      <input class="form-control" id="novoUserNome">
+    </div>
+    <div class="mb-2">
+      <label class="form-label">Senha</label>
+      <input type="password" class="form-control" id="novoUserSenha">
+    </div>
+    <div class="mb-2 form-check">
+      <input type="checkbox" class="form-check-input" id="novoUserAdmin">
+      <label class="form-check-label">Administrador</label>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button class="btn btn-primary" id="btnSalvarUsuario">Salvar</button>
+  </div>
+</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>const IS_ADMIN = {{ 'true' if admin else 'false' }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
