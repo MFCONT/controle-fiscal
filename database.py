@@ -1,7 +1,16 @@
-"""Camada de acesso ao banco SQLite."""
-import sqlite3, os, hashlib, datetime
+"""Camada de acesso ao banco — suporta PostgreSQL (nuvem) e SQLite (local)."""
+import os, hashlib, datetime
 
-DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "dados.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# Render usa 'postgres://' mas psycopg2 exige 'postgresql://'
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+USE_PG = bool(DATABASE_URL)
+
+if not USE_PG:
+    import sqlite3
+    DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "dados.db"))
 
 ATIVIDADES_PADRAO = [
     (1,  "Ângela",  "Apuração de ISSQN",                                 "Mensal",    15),
@@ -43,209 +52,331 @@ ATIVIDADES_PADRAO = [
 
 def _hash(pwd): return hashlib.sha256(pwd.encode()).hexdigest()
 
+# ── conexão ────────────────────────────────────────────────────────────────────
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    if USE_PG:
+        import psycopg2, psycopg2.extras
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        return conn
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
+def _rows(cursor):
+    """Converte resultado do cursor para lista de dicts."""
+    if USE_PG:
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    else:
+        return [dict(r) for r in cursor.fetchall()]
+
+def _row(cursor):
+    r = _rows(cursor)
+    return r[0] if r else None
+
+def _ex(conn, sql, params=()):
+    """Executa SQL adaptando placeholder e retorna cursor."""
+    if USE_PG:
+        sql = sql.replace("?", "%s")
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur
+
+def _commit(conn):
+    if USE_PG:
+        conn.commit()
+
+# ── init ───────────────────────────────────────────────────────────────────────
 def init_db():
-    with get_db() as db:
-        db.executescript("""
-        CREATE TABLE IF NOT EXISTS usuarios (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome      TEXT    UNIQUE NOT NULL,
-            senha     TEXT    NOT NULL,
-            cor       TEXT    DEFAULT '#2E75B6',
-            admin     INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS responsaveis (
-            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    conn = get_db()
+    try:
+        if USE_PG:
+            _init_pg(conn)
+        else:
+            _init_sqlite(conn)
+        _commit(conn)
+    finally:
+        conn.close()
+
+def _init_pg(conn):
+    stmts = [
+        """CREATE TABLE IF NOT EXISTS usuarios (
+            id    SERIAL PRIMARY KEY,
+            nome  TEXT UNIQUE NOT NULL,
+            senha TEXT NOT NULL,
+            cor   TEXT DEFAULT '#2E75B6',
+            admin INTEGER DEFAULT 0)""",
+        """CREATE TABLE IF NOT EXISTS responsaveis (
+            id   SERIAL PRIMARY KEY,
             nome TEXT UNIQUE NOT NULL,
-            cor  TEXT DEFAULT '#2E75B6'
-        );
-        CREATE TABLE IF NOT EXISTS atividades (
+            cor  TEXT DEFAULT '#2E75B6')""",
+        """CREATE TABLE IF NOT EXISTS atividades (
             id          INTEGER PRIMARY KEY,
-            responsavel TEXT    NOT NULL,
-            nome        TEXT    NOT NULL,
-            tipo        TEXT    NOT NULL,
+            responsavel TEXT NOT NULL,
+            nome        TEXT NOT NULL,
+            tipo        TEXT NOT NULL,
             prazo_dia   INTEGER,
             padrao      INTEGER DEFAULT 0,
-            ativo       INTEGER DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS registros (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            atividade_id INTEGER NOT NULL,
-            mes_ano      TEXT    NOT NULL,
-            status       TEXT    DEFAULT 'Pendente',
-            tempo_seg    REAL    DEFAULT 0,
-            obs          TEXT    DEFAULT '',
-            atualizado_por TEXT  DEFAULT '',
-            atualizado_em  TEXT  DEFAULT '',
-            UNIQUE(atividade_id, mes_ano)
-        );
-        """)
+            ativo       INTEGER DEFAULT 1)""",
+        """CREATE TABLE IF NOT EXISTS registros (
+            id             SERIAL PRIMARY KEY,
+            atividade_id   INTEGER NOT NULL,
+            mes_ano        TEXT NOT NULL,
+            status         TEXT DEFAULT 'Pendente',
+            tempo_seg      REAL DEFAULT 0,
+            obs            TEXT DEFAULT '',
+            atualizado_por TEXT DEFAULT '',
+            atualizado_em  TEXT DEFAULT '',
+            UNIQUE(atividade_id, mes_ano))""",
+    ]
+    for s in stmts:
+        _ex(conn, s)
 
-        # responsáveis padrão
-        for nome, cor in [("Ângela","#5B4FCF"),("Juliana","#28A745"),("Rebeca","#DC3545")]:
-            db.execute("INSERT OR IGNORE INTO responsaveis(nome,cor) VALUES(?,?)", (nome,cor))
+    for nome, cor in [("Ângela","#5B4FCF"),("Juliana","#28A745"),("Rebeca","#DC3545")]:
+        _ex(conn, "INSERT INTO responsaveis(nome,cor) VALUES(%s,%s) ON CONFLICT DO NOTHING", (nome,cor))
 
-        # atividades padrão
-        for (aid, resp, nome, tipo, prazo) in ATIVIDADES_PADRAO:
-            db.execute("""INSERT OR IGNORE INTO atividades(id,responsavel,nome,tipo,prazo_dia,padrao,ativo)
-                          VALUES(?,?,?,?,?,1,1)""", (aid, resp, nome, tipo, prazo))
+    for (aid,resp,nome,tipo,prazo) in ATIVIDADES_PADRAO:
+        _ex(conn, """INSERT INTO atividades(id,responsavel,nome,tipo,prazo_dia,padrao,ativo)
+                     VALUES(%s,%s,%s,%s,%s,1,1) ON CONFLICT DO NOTHING""",
+            (aid,resp,nome,tipo,prazo))
 
-        # usuário admin padrão
-        db.execute("""INSERT OR IGNORE INTO usuarios(nome,senha,cor,admin)
-                      VALUES('admin',?,?,1)""", (_hash('admin123'), '#1F4E79'))
-        db.commit()
+    _ex(conn, """INSERT INTO usuarios(nome,senha,cor,admin)
+                 VALUES(%s,%s,%s,1) ON CONFLICT DO NOTHING""",
+        ('admin', _hash('admin123'), '#1F4E79'))
 
-# ── usuários ──────────────────────────────────────────────────────────────────
+def _init_sqlite(conn):
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome  TEXT UNIQUE NOT NULL,
+        senha TEXT NOT NULL,
+        cor   TEXT DEFAULT '#2E75B6',
+        admin INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS responsaveis (
+        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT UNIQUE NOT NULL,
+        cor  TEXT DEFAULT '#2E75B6');
+    CREATE TABLE IF NOT EXISTS atividades (
+        id          INTEGER PRIMARY KEY,
+        responsavel TEXT NOT NULL,
+        nome        TEXT NOT NULL,
+        tipo        TEXT NOT NULL,
+        prazo_dia   INTEGER,
+        padrao      INTEGER DEFAULT 0,
+        ativo       INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS registros (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        atividade_id   INTEGER NOT NULL,
+        mes_ano        TEXT NOT NULL,
+        status         TEXT DEFAULT 'Pendente',
+        tempo_seg      REAL DEFAULT 0,
+        obs            TEXT DEFAULT '',
+        atualizado_por TEXT DEFAULT '',
+        atualizado_em  TEXT DEFAULT '',
+        UNIQUE(atividade_id, mes_ano));
+    """)
+    for nome,cor in [("Ângela","#5B4FCF"),("Juliana","#28A745"),("Rebeca","#DC3545")]:
+        conn.execute("INSERT OR IGNORE INTO responsaveis(nome,cor) VALUES(?,?)",(nome,cor))
+    for (aid,resp,nome,tipo,prazo) in ATIVIDADES_PADRAO:
+        conn.execute("INSERT OR IGNORE INTO atividades(id,responsavel,nome,tipo,prazo_dia,padrao,ativo) VALUES(?,?,?,?,?,1,1)",
+                     (aid,resp,nome,tipo,prazo))
+    conn.execute("INSERT OR IGNORE INTO usuarios(nome,senha,cor,admin) VALUES(?,?,?,1)",
+                 ('admin',_hash('admin123'),'#1F4E79'))
+    conn.commit()
+
+# ── usuários ───────────────────────────────────────────────────────────────────
 def login(nome, senha):
-    with get_db() as db:
-        row = db.execute("SELECT * FROM usuarios WHERE nome=? AND senha=?",
-                         (nome, _hash(senha))).fetchone()
-        return dict(row) if row else None
+    conn = get_db()
+    try:
+        cur = _ex(conn, "SELECT * FROM usuarios WHERE nome=? AND senha=?", (nome, _hash(senha)))
+        return _row(cur)
+    finally: conn.close()
 
 def listar_usuarios():
-    with get_db() as db:
-        return [dict(r) for r in db.execute("SELECT id,nome,cor,admin FROM usuarios")]
+    conn = get_db()
+    try:
+        return _rows(_ex(conn, "SELECT id,nome,cor,admin FROM usuarios"))
+    finally: conn.close()
 
 def criar_usuario(nome, senha, cor="#2E75B6", admin=0):
-    with get_db() as db:
+    conn = get_db()
+    try:
         try:
-            db.execute("INSERT INTO usuarios(nome,senha,cor,admin) VALUES(?,?,?,?)",
-                       (nome, _hash(senha), cor, admin))
-            db.commit(); return True
-        except sqlite3.IntegrityError:
-            return False
+            _ex(conn, "INSERT INTO usuarios(nome,senha,cor,admin) VALUES(?,?,?,?)",
+                (nome, _hash(senha), cor, admin))
+            _commit(conn); return True
+        except Exception: conn.rollback() if USE_PG else None; return False
+    finally: conn.close()
 
 def alterar_senha(nome, nova_senha):
-    with get_db() as db:
-        db.execute("UPDATE usuarios SET senha=? WHERE nome=?", (_hash(nova_senha), nome))
-        db.commit()
+    conn = get_db()
+    try:
+        _ex(conn, "UPDATE usuarios SET senha=? WHERE nome=?", (_hash(nova_senha), nome))
+        _commit(conn)
+    finally: conn.close()
 
 def excluir_usuario(uid):
-    with get_db() as db:
-        db.execute("DELETE FROM usuarios WHERE id=? AND admin=0", (uid,))
-        db.commit()
+    conn = get_db()
+    try:
+        _ex(conn, "DELETE FROM usuarios WHERE id=? AND admin=0", (uid,))
+        _commit(conn)
+    finally: conn.close()
 
-# ── responsáveis ─────────────────────────────────────────────────────────────
+# ── responsáveis ───────────────────────────────────────────────────────────────
 def listar_responsaveis():
-    with get_db() as db:
-        return [dict(r) for r in db.execute("SELECT * FROM responsaveis ORDER BY nome")]
+    conn = get_db()
+    try:
+        return _rows(_ex(conn, "SELECT * FROM responsaveis ORDER BY nome"))
+    finally: conn.close()
 
 def criar_responsavel(nome, cor):
-    with get_db() as db:
+    conn = get_db()
+    try:
         try:
-            db.execute("INSERT INTO responsaveis(nome,cor) VALUES(?,?)", (nome, cor))
-            db.commit(); return True
-        except sqlite3.IntegrityError:
-            return False
+            _ex(conn, "INSERT INTO responsaveis(nome,cor) VALUES(?,?)", (nome, cor))
+            _commit(conn); return True
+        except Exception: conn.rollback() if USE_PG else None; return False
+    finally: conn.close()
 
 def excluir_responsavel(rid):
     nomes_padrao = {a[1] for a in ATIVIDADES_PADRAO}
-    with get_db() as db:
-        row = db.execute("SELECT nome FROM responsaveis WHERE id=?", (rid,)).fetchone()
+    conn = get_db()
+    try:
+        cur = _ex(conn, "SELECT nome FROM responsaveis WHERE id=?", (rid,))
+        row = _row(cur)
         if not row or row["nome"] in nomes_padrao:
             return False
-        db.execute("UPDATE atividades SET ativo=0 WHERE responsavel=? AND padrao=0",
-                   (row["nome"],))
-        db.execute("DELETE FROM responsaveis WHERE id=?", (rid,))
-        db.commit(); return True
+        _ex(conn, "UPDATE atividades SET ativo=0 WHERE responsavel=? AND padrao=0", (row["nome"],))
+        _ex(conn, "DELETE FROM responsaveis WHERE id=?", (rid,))
+        _commit(conn); return True
+    finally: conn.close()
 
-# ── atividades ────────────────────────────────────────────────────────────────
+# ── atividades ─────────────────────────────────────────────────────────────────
 def listar_atividades_mes(mes_ano, responsavel=None, status=None):
-    with get_db() as db:
-        q = """
-            SELECT a.id, a.responsavel, a.nome, a.tipo, a.prazo_dia, a.padrao,
-                   COALESCE(r.status,'Pendente')  AS status,
-                   COALESCE(r.tempo_seg,0)        AS tempo_seg,
-                   COALESCE(r.obs,'')             AS obs,
-                   COALESCE(r.atualizado_por,'')  AS atualizado_por,
-                   COALESCE(r.atualizado_em,'')   AS atualizado_em
-            FROM atividades a
-            LEFT JOIN registros r ON r.atividade_id=a.id AND r.mes_ano=?
-            WHERE a.ativo=1
-        """
+    conn = get_db()
+    try:
+        q = """SELECT a.id, a.responsavel, a.nome, a.tipo, a.prazo_dia, a.padrao,
+                      COALESCE(r.status,'Pendente')  AS status,
+                      COALESCE(r.tempo_seg,0)        AS tempo_seg,
+                      COALESCE(r.obs,'')             AS obs,
+                      COALESCE(r.atualizado_por,'')  AS atualizado_por,
+                      COALESCE(r.atualizado_em,'')   AS atualizado_em
+               FROM atividades a
+               LEFT JOIN registros r ON r.atividade_id=a.id AND r.mes_ano=?
+               WHERE a.ativo=1"""
         params = [mes_ano]
         if responsavel and responsavel != "Todos":
             q += " AND a.responsavel=?"; params.append(responsavel)
         if status and status != "Todos":
             q += " AND COALESCE(r.status,'Pendente')=?"; params.append(status)
         q += " ORDER BY a.responsavel, a.id"
-        return [dict(r) for r in db.execute(q, params)]
+        return _rows(_ex(conn, q, params))
+    finally: conn.close()
 
 def criar_atividade(responsavel, nome, tipo, prazo_dia):
-    with get_db() as db:
-        cur = db.execute(
-            "INSERT INTO atividades(responsavel,nome,tipo,prazo_dia,padrao,ativo) VALUES(?,?,?,?,0,1)",
-            (responsavel, nome, tipo, prazo_dia))
-        db.commit(); return cur.lastrowid
+    conn = get_db()
+    try:
+        if USE_PG:
+            cur = _ex(conn,
+                "INSERT INTO atividades(responsavel,nome,tipo,prazo_dia,padrao,ativo) VALUES(%s,%s,%s,%s,0,1) RETURNING id",
+                (responsavel, nome, tipo, prazo_dia))
+            aid = cur.fetchone()[0]
+        else:
+            cur = _ex(conn,
+                "INSERT INTO atividades(responsavel,nome,tipo,prazo_dia,padrao,ativo) VALUES(?,?,?,?,0,1)",
+                (responsavel, nome, tipo, prazo_dia))
+            aid = cur.lastrowid
+        _commit(conn); return aid
+    finally: conn.close()
 
 def editar_atividade(aid, responsavel, nome, tipo, prazo_dia):
-    with get_db() as db:
-        db.execute("UPDATE atividades SET responsavel=?,nome=?,tipo=?,prazo_dia=? WHERE id=?",
-                   (responsavel, nome, tipo, prazo_dia, aid))
-        db.commit()
+    conn = get_db()
+    try:
+        _ex(conn, "UPDATE atividades SET responsavel=?,nome=?,tipo=?,prazo_dia=? WHERE id=?",
+            (responsavel, nome, tipo, prazo_dia, aid))
+        _commit(conn)
+    finally: conn.close()
 
 def excluir_atividade(aid):
-    with get_db() as db:
-        db.execute("UPDATE atividades SET ativo=0 WHERE id=?", (aid,))
-        db.commit()
+    conn = get_db()
+    try:
+        _ex(conn, "UPDATE atividades SET ativo=0 WHERE id=?", (aid,))
+        _commit(conn)
+    finally: conn.close()
 
 def restaurar_atividade(aid):
-    with get_db() as db:
-        db.execute("UPDATE atividades SET ativo=1 WHERE id=?", (aid,))
-        db.commit()
+    conn = get_db()
+    try:
+        _ex(conn, "UPDATE atividades SET ativo=1 WHERE id=?", (aid,))
+        _commit(conn)
+    finally: conn.close()
 
 def atividades_ocultas():
-    with get_db() as db:
-        return [dict(r) for r in db.execute(
-            "SELECT id,responsavel,nome FROM atividades WHERE ativo=0 AND padrao=1")]
+    conn = get_db()
+    try:
+        return _rows(_ex(conn,
+            "SELECT id,responsavel,nome FROM atividades WHERE ativo=0 AND padrao=1"))
+    finally: conn.close()
 
-# ── registros ─────────────────────────────────────────────────────────────────
+# ── registros ──────────────────────────────────────────────────────────────────
 def salvar_registro(atividade_id, mes_ano, status, tempo_seg, obs, usuario):
     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-    with get_db() as db:
-        db.execute("""
-            INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,atualizado_por,atualizado_em)
-            VALUES(?,?,?,?,?,?,?)
-            ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
-                status=excluded.status,
-                tempo_seg=excluded.tempo_seg,
-                obs=excluded.obs,
-                atualizado_por=excluded.atualizado_por,
-                atualizado_em=excluded.atualizado_em
-        """, (atividade_id, mes_ano, status, tempo_seg, obs, usuario, ts))
-        db.commit()
+    conn = get_db()
+    try:
+        if USE_PG:
+            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,atualizado_por,atualizado_em)
+                         VALUES(%s,%s,%s,%s,%s,%s,%s)
+                         ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
+                             status=EXCLUDED.status, tempo_seg=EXCLUDED.tempo_seg,
+                             obs=EXCLUDED.obs, atualizado_por=EXCLUDED.atualizado_por,
+                             atualizado_em=EXCLUDED.atualizado_em""",
+                (atividade_id, mes_ano, status, tempo_seg, obs, usuario, ts))
+        else:
+            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,atualizado_por,atualizado_em)
+                         VALUES(?,?,?,?,?,?,?)
+                         ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
+                             status=excluded.status, tempo_seg=excluded.tempo_seg,
+                             obs=excluded.obs, atualizado_por=excluded.atualizado_por,
+                             atualizado_em=excluded.atualizado_em""",
+                (atividade_id, mes_ano, status, tempo_seg, obs, usuario, ts))
+        _commit(conn)
+    finally: conn.close()
 
-# ── dashboard ─────────────────────────────────────────────────────────────────
+# ── dashboard ──────────────────────────────────────────────────────────────────
 def stats_mes(mes_ano):
     ativs = listar_atividades_mes(mes_ano)
     cnt = {"Pendente":0,"Em Andamento":0,"Realizada":0,"Não Realizada":0}
     tempo_resp = {}
     for a in ativs:
         cnt[a["status"]] = cnt.get(a["status"], 0) + 1
-        tempo_resp[a["responsavel"]] = tempo_resp.get(a["responsavel"],0) + a["tempo_seg"]
+        tempo_resp[a["responsavel"]] = tempo_resp.get(a["responsavel"], 0) + a["tempo_seg"]
     total = len(ativs)
     pct   = round(cnt["Realizada"]/total*100) if total else 0
     return {"contagem": cnt, "total": total, "pct_conclusao": pct,
             "tempo_por_responsavel": tempo_resp}
 
 def tendencia_6meses():
-    hoje  = datetime.date.today()
+    hoje = datetime.date.today()
     result = []
-    with get_db() as db:
-        total_ativ = db.execute("SELECT COUNT(*) FROM atividades WHERE ativo=1").fetchone()[0]
+    conn = get_db()
+    try:
+        cur = _ex(conn, "SELECT COUNT(*) FROM atividades WHERE ativo=1")
+        total_ativ = cur.fetchone()[0]
+    finally: conn.close()
+
     for d in range(-5, 1):
         m = hoje.month + d
         y = hoje.year + (m-1)//12
         m = ((m-1)%12)+1
         ma = f"{m:02d}/{y}"
-        with get_db() as db:
-            real = db.execute(
-                "SELECT COUNT(*) FROM registros WHERE mes_ano=? AND status='Realizada'",
-                (ma,)).fetchone()[0]
+        conn = get_db()
+        try:
+            cur = _ex(conn,
+                "SELECT COUNT(*) FROM registros WHERE mes_ano=? AND status='Realizada'", (ma,))
+            real = cur.fetchone()[0]
+        finally: conn.close()
         result.append({"mes_ano": ma, "realizadas": real, "total": total_ativ})
     return result
