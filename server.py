@@ -250,6 +250,9 @@ if __name__ == "__main__":
     if debug:
         app.run(host="0.0.0.0", port=port, debug=True)
     else:
-        from waitress import serve
-        print(f"Servidor rodando em http://0.0.0.0:{port}")
-        serve(app, host="0.0.0.0", port=port)
+        try:
+            from waitress import serve
+            print(f"Servidor rodando em http://0.0.0.0:{port}")
+            serve(app, host="0.0.0.0", port=port)
+        except ImportError:
+            app.run(host="0.0.0.0", port=port)
