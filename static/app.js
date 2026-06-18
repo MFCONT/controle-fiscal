@@ -4,10 +4,10 @@ let responsaveis = [];
 let charts = {};
 
 /* ── utilidades ──────────────────────────────────── */
-const fmt = d => `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+const fmt     = d => `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
 const fmtNome = d => d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}).replace(/^\w/,c=>c.toUpperCase());
-const seg2hm = s => { s=Math.round(s||0); return `${Math.floor(s/3600)}h${String(Math.floor((s%3600)/60)).padStart(2,'0')}m`; };
-const hm2seg = v => { const [h,m]=(v||'0:0').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
+const seg2hm  = s => { s=Math.round(s||0); return `${Math.floor(s/3600)}h${String(Math.floor((s%3600)/60)).padStart(2,'0')}m`; };
+const hm2seg  = v => { const [h,m]=(v||'0:0').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
 
 async function api(url, opts={}) {
   const r = await fetch(url, { headers:{'Content-Type':'application/json'}, ...opts });
@@ -65,7 +65,7 @@ document.querySelectorAll('.nav-item[data-tab]').forEach(a => {
     document.getElementById('tab-'+id).classList.add('active');
     if (id==='dashboard') carregarDashboard();
     if (id==='calendario') carregarCalendario();
-    if (id==='gerenciar') { carregarGerenciar(); }
+    if (id==='gerenciar') carregarGerenciar();
   });
 });
 
@@ -107,27 +107,35 @@ function renderCards(ativs) {
   `;
 }
 
+function podeEditar(atividade) {
+  if (IS_ADMIN) return true;
+  return USER_RESP && atividade.responsavel === USER_RESP;
+}
+
 function renderTabela(ativs) {
   const tbody = document.getElementById('tbodyAtiv');
   if (!ativs.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">Nenhuma atividade encontrada.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">Nenhuma atividade encontrada.</td></tr>';
     return;
   }
   tbody.innerHTML = ativs.map(a => {
     const tempo = a.tempo_seg ? seg2hm(a.tempo_seg) : '—';
     const prazo = prazoLabel(a.prazo_dia, a.status);
+    const conc  = a.data_conclusao ? `<br><small class="text-muted">${a.data_conclusao.replace('T',' ')}</small>` : '';
+    const botoes = podeEditar(a)
+      ? `<button class="btn-tbl" title="Editar" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
+         <button class="btn-tbl danger" title="Ocultar" onclick="ocultarAtividade(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-eye-slash"></i></button>
+         ${IS_ADMIN && !a.padrao ? `<button class="btn-tbl danger" title="Excluir permanente" onclick="excluirPermanente(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>` : ''}`
+      : '<span class="text-muted small">—</span>';
     return `<tr>
       <td><span class="fw-semibold">${a.responsavel}</span></td>
       <td>${a.nome}</td>
       <td><span class="badge bg-secondary bg-opacity-10 text-secondary">${a.tipo}</span></td>
       <td>${prazo||'—'}</td>
-      <td><span class="badge-status ${classStatus(a.status)}">${a.status}</span></td>
+      <td><span class="badge-status ${classStatus(a.status)}">${a.status}</span>${conc}</td>
       <td>${tempo}</td>
       <td class="text-muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.obs||'—'}</td>
-      <td style="white-space:nowrap">
-        <button class="btn-tbl" title="Editar" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
-        <button class="btn-tbl danger" title="Ocultar" onclick="ocultarAtividade(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-eye-slash"></i></button>
-      </td>
+      <td style="white-space:nowrap">${botoes}</td>
     </tr>`;
   }).join('');
 }
@@ -158,17 +166,54 @@ function abrirEditar(id) {
     if (!a) return;
     document.getElementById('modalAtivTitulo').textContent = 'Editar Atividade';
     document.getElementById('editId').value = id;
-    document.getElementById('editNome').value = a.nome;
-    document.getElementById('editTipo').value = a.tipo;
-    document.getElementById('editPrazo').value = a.prazo_dia||'';
     document.getElementById('editStatus').value = a.status;
     const t = Math.round(a.tempo_seg||0);
     document.getElementById('editTempo').value = t ? `${Math.floor(t/3600)}:${String(Math.floor((t%3600)/60)).padStart(2,'0')}` : '';
     document.getElementById('editObs').value = a.obs||'';
-    preencherSelectResp('editResp', a.responsavel);
+    document.getElementById('editConclusao').value = a.data_conclusao||'';
+
+    if (IS_ADMIN) {
+      document.getElementById('secaoAtividade').style.display = '';
+      document.getElementById('nomeAtivReadonly').style.display = 'none';
+      document.getElementById('editNome').value = a.nome;
+      document.getElementById('editTipo').value = a.tipo;
+      document.getElementById('editPrazo').value = a.prazo_dia||'';
+      preencherSelectResp('editResp', a.responsavel);
+    } else {
+      document.getElementById('secaoAtividade').style.display = 'none';
+      document.getElementById('nomeAtivReadonly').style.display = '';
+      document.getElementById('editNomeLbl').textContent = `${a.responsavel} — ${a.nome}`;
+    }
+
+    // seção replicar (só para atividades existentes)
+    document.getElementById('secaoReplicar').style.display = '';
+    document.getElementById('chkReplicar').checked = false;
+    document.getElementById('replicarOpcoes').style.display = 'none';
+    construirMesesReplicar();
+
     modalAtivBS.show();
   });
 }
+
+function construirMesesReplicar() {
+  const lista = document.getElementById('replicarMesesLista');
+  lista.innerHTML = '';
+  const hoje = mesAtual;
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+    const ma = fmt(d);
+    const nome = d.toLocaleDateString('pt-BR',{month:'short',year:'numeric'});
+    const cb = document.createElement('div');
+    cb.className = 'form-check form-check-inline';
+    cb.innerHTML = `<input class="form-check-input replicar-mes" type="checkbox" value="${ma}" id="rm_${ma}">
+                    <label class="form-check-label" for="rm_${ma}">${nome}</label>`;
+    lista.appendChild(cb);
+  }
+}
+
+document.getElementById('chkReplicar').addEventListener('change', function() {
+  document.getElementById('replicarOpcoes').style.display = this.checked ? '' : 'none';
+});
 
 function preencherSelectResp(id, selecionado) {
   const sel = document.getElementById(id);
@@ -178,9 +223,13 @@ function preencherSelectResp(id, selecionado) {
 }
 
 document.getElementById('btnNovaAtividade').onclick = () => {
+  if (!IS_ADMIN) { toast('Apenas o administrador pode criar novas atividades.','warning'); return; }
   document.getElementById('modalAtivTitulo').textContent = 'Nova Atividade';
   document.getElementById('editId').value = '';
-  ['editNome','editTempo','editObs','editPrazo'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('secaoAtividade').style.display = '';
+  document.getElementById('nomeAtivReadonly').style.display = 'none';
+  document.getElementById('secaoReplicar').style.display = 'none';
+  ['editNome','editTempo','editObs','editPrazo','editConclusao'].forEach(id => document.getElementById(id).value='');
   document.getElementById('editStatus').value = 'Pendente';
   preencherSelectResp('editResp', responsaveis[0]?.nome||'');
   modalAtivBS.show();
@@ -188,28 +237,53 @@ document.getElementById('btnNovaAtividade').onclick = () => {
 
 document.getElementById('btnSalvarAtiv').onclick = async () => {
   const id      = document.getElementById('editId').value;
-  const nome    = document.getElementById('editNome').value.trim();
-  const resp    = document.getElementById('editResp').value;
-  const tipo    = document.getElementById('editTipo').value;
-  const prazo   = document.getElementById('editPrazo').value||null;
   const status  = document.getElementById('editStatus').value;
   const tempo   = hm2seg(document.getElementById('editTempo').value);
   const obs     = document.getElementById('editObs').value.trim();
+  const concl   = document.getElementById('editConclusao').value;
 
-  if (!nome || !resp) { toast('Preencha nome e responsável.','warning'); return; }
-
-  try {
-    if (id) {
-      await api(`/api/atividades/${id}`, {method:'PUT',
-        body: JSON.stringify({responsavel:resp,nome,tipo,prazo_dia:prazo?+prazo:null})});
-      await api('/api/registros', {method:'POST',
-        body: JSON.stringify({atividade_id:+id,mes_ano:fmt(mesAtual),status,tempo_seg:tempo,obs})});
-    } else {
+  if (!id) {
+    // Nova atividade (só admin)
+    const nome  = document.getElementById('editNome').value.trim();
+    const resp  = document.getElementById('editResp').value;
+    const tipo  = document.getElementById('editTipo').value;
+    const prazo = document.getElementById('editPrazo').value||null;
+    if (!nome || !resp) { toast('Preencha nome e responsável.','warning'); return; }
+    try {
       const res = await api('/api/atividades', {method:'POST',
         body: JSON.stringify({responsavel:resp,nome,tipo,prazo_dia:prazo?+prazo:null})});
       await api('/api/registros', {method:'POST',
-        body: JSON.stringify({atividade_id:res.id,mes_ano:fmt(mesAtual),status,tempo_seg:tempo,obs})});
+        body: JSON.stringify({atividade_id:res.id,mes_ano:fmt(mesAtual),status,tempo_seg:tempo,obs,data_conclusao:concl})});
+      modalAtivBS.hide();
+      toast('Atividade criada.');
+      carregarAtividades();
+    } catch(e) { toast(e.message,'danger'); }
+    return;
+  }
+
+  // Edição de atividade existente
+  try {
+    if (IS_ADMIN) {
+      const nome  = document.getElementById('editNome').value.trim();
+      const resp  = document.getElementById('editResp').value;
+      const tipo  = document.getElementById('editTipo').value;
+      const prazo = document.getElementById('editPrazo').value||null;
+      await api(`/api/atividades/${id}`, {method:'PUT',
+        body: JSON.stringify({responsavel:resp,nome,tipo,prazo_dia:prazo?+prazo:null})});
     }
+    await api('/api/registros', {method:'POST',
+      body: JSON.stringify({atividade_id:+id,mes_ano:fmt(mesAtual),status,tempo_seg:tempo,obs,data_conclusao:concl})});
+
+    // replicar para outros meses?
+    if (document.getElementById('chkReplicar').checked) {
+      const meses = [...document.querySelectorAll('.replicar-mes:checked')].map(c=>c.value);
+      if (meses.length) {
+        await api('/api/registros/replicar', {method:'POST',
+          body: JSON.stringify({atividade_id:+id, mes_ano_origem:fmt(mesAtual), meses_destino:meses})});
+        toast(`Replicado para ${meses.length} mês(es).`);
+      }
+    }
+
     modalAtivBS.hide();
     toast('Salvo com sucesso.');
     carregarAtividades();
@@ -217,9 +291,17 @@ document.getElementById('btnSalvarAtiv').onclick = async () => {
 };
 
 async function ocultarAtividade(id, nome) {
-  if (!confirm(`Ocultar "${nome}"?`)) return;
+  if (!confirm(`Ocultar "${nome}" deste mês em diante?`)) return;
   await api(`/api/atividades/${id}`, {method:'DELETE'});
   toast('Atividade ocultada.');
+  carregarAtividades();
+}
+
+async function excluirPermanente(id, nome) {
+  if (!IS_ADMIN) return;
+  if (!confirm(`EXCLUIR PERMANENTEMENTE "${nome}"?\n\nEsta ação não pode ser desfeita e removerá todos os registros históricos.`)) return;
+  await api(`/api/atividades/${id}?permanente=1`, {method:'DELETE'});
+  toast('Atividade excluída permanentemente.');
   carregarAtividades();
 }
 
@@ -256,7 +338,6 @@ async function carregarDashboard() {
     options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
   });
 
-  // bar por responsável (atividades realizadas)
   destroyChart('chartResp');
   const atMes = await api(`/api/atividades?mes_ano=${fmt(mesAtual)}`);
   const byResp = {};
@@ -300,7 +381,6 @@ async function carregarGerenciar() {
 async function carregarResponsaveis() {
   const data = await api('/api/responsaveis');
   responsaveis = data;
-  // popula filtros
   ['filtroResp','relResp','calFiltroResp'].forEach(id => {
     const sel = document.getElementById(id);
     const val = sel.value;
@@ -308,6 +388,13 @@ async function carregarResponsaveis() {
     else sel.innerHTML = '<option value="Todos">Todos</option>';
     data.forEach(r => sel.innerHTML += `<option value="${r.nome}" ${r.nome===val?'selected':''}>${r.nome}</option>`);
   });
+
+  // popula select de responsável no modal de usuário
+  const selUserResp = document.getElementById('novoUserResp');
+  if (selUserResp) {
+    selUserResp.innerHTML = '<option value="">— nenhum (admin) —</option>';
+    data.forEach(r => selUserResp.innerHTML += `<option value="${r.nome}">${r.nome}</option>`);
+  }
 
   document.getElementById('listaResps').innerHTML = data.map(r => `
     <div class="ger-item">
@@ -373,6 +460,7 @@ async function carregarUsuarios() {
     <div class="ger-item">
       <span class="fw-semibold ger-nome">${u.nome}</span>
       ${u.admin ? '<span class="badge bg-primary">Admin</span>' : ''}
+      ${u.responsavel_nome ? `<span class="badge bg-secondary">${u.responsavel_nome}</span>` : ''}
       <button class="btn btn-sm btn-outline-danger" onclick="excluirUsuario(${u.id},'${u.nome.replace(/'/g,"\\'")}')">
         <i class="bi bi-trash"></i>
       </button>
@@ -392,12 +480,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 document.getElementById('btnNovoUsuario')?.addEventListener('click', () => modalUserBS.show());
 document.getElementById('btnSalvarUsuario')?.addEventListener('click', async () => {
-  const nome  = document.getElementById('novoUserNome').value.trim();
-  const senha = document.getElementById('novoUserSenha').value;
-  const adm   = document.getElementById('novoUserAdmin').checked ? 1 : 0;
+  const nome      = document.getElementById('novoUserNome').value.trim();
+  const senha     = document.getElementById('novoUserSenha').value;
+  const adm       = document.getElementById('novoUserAdmin').checked ? 1 : 0;
+  const respNome  = document.getElementById('novoUserResp').value;
   if (!nome||!senha) { toast('Preencha nome e senha.','warning'); return; }
   try {
-    await api('/api/usuarios', {method:'POST', body:JSON.stringify({nome,senha,admin:adm})});
+    await api('/api/usuarios', {method:'POST', body:JSON.stringify({nome,senha,admin:adm,responsavel_nome:respNome})});
     modalUserBS.hide();
     document.getElementById('novoUserNome').value='';
     document.getElementById('novoUserSenha').value='';
@@ -428,26 +517,21 @@ async function carregarCalendario() {
   const respFiltro = document.getElementById('calFiltroResp').value;
   const atividades = await api(`/api/atividades?mes_ano=${fmt(mesAtual)}&responsavel=${encodeURIComponent(respFiltro)}`);
 
-  // agrupa atividades por dia de prazo
   const porDia = {};
   atividades.forEach(a => {
     if (!a.prazo_dia) return;
-    const k = a.prazo_dia;
-    if (!porDia[k]) porDia[k] = [];
-    porDia[k].push(a);
+    if (!porDia[a.prazo_dia]) porDia[a.prazo_dia] = [];
+    porDia[a.prazo_dia].push(a);
   });
-
-  // também inclui atividades sem prazo em um "dia 0" para referência
-  // (não mostramos no calendário, mas usamos no modal)
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
   const hoje = new Date();
 
-  const primeiroDia = new Date(ano, mes, 1);
-  const ultimoDia   = new Date(ano, mes + 1, 0);
-  const diasNoMes   = ultimoDia.getDate();
-  const inicioSemana = primeiroDia.getDay(); // 0=dom
+  const primeiroDia  = new Date(ano, mes, 1);
+  const ultimoDia    = new Date(ano, mes + 1, 0);
+  const diasNoMes    = ultimoDia.getDate();
+  const inicioSemana = primeiroDia.getDay(); // 0=dom (padrão br)
 
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
@@ -455,24 +539,22 @@ async function carregarCalendario() {
   const totalCelulas = Math.ceil((inicioSemana + diasNoMes) / 7) * 7;
 
   for (let i = 0; i < totalCelulas; i++) {
-    const diaDiff = i - inicioSemana;
-    const data    = new Date(ano, mes, 1 + diaDiff);
-    const diaNum  = data.getDate();
+    const diaDiff   = i - inicioSemana;
+    const data      = new Date(ano, mes, 1 + diaDiff);
+    const diaNum    = data.getDate();
     const ehMesAtual = data.getMonth() === mes;
-    const ehHoje   = data.toDateString() === hoje.toDateString();
+    const ehHoje    = data.toDateString() === hoje.toDateString();
 
     const cell = document.createElement('div');
     cell.className = 'cal-cell' +
       (!ehMesAtual ? ' outro-mes' : '') +
       (ehHoje      ? ' hoje'      : '');
 
-    // número do dia
     const numEl = document.createElement('div');
     numEl.className = 'cal-dia-num';
     numEl.textContent = diaNum;
     cell.appendChild(numEl);
 
-    // eventos do dia
     const eventosEl = document.createElement('div');
     eventosEl.className = 'cal-eventos';
 
@@ -481,12 +563,7 @@ async function carregarCalendario() {
       const MAX_VIS = 3;
       lista.slice(0, MAX_VIS).forEach(a => {
         const ev = document.createElement('div');
-        const cls = {
-          'Realizada':    'ev-realizada',
-          'Em Andamento': 'ev-andamento',
-          'Não Realizada':'ev-nao',
-          'Pendente':     'ev-pendente'
-        }[a.status] || 'ev-pendente';
+        const cls = {'Realizada':'ev-realizada','Em Andamento':'ev-andamento','Não Realizada':'ev-nao','Pendente':'ev-pendente'}[a.status]||'ev-pendente';
         ev.className = `cal-evento ${cls}`;
         ev.textContent = `${a.responsavel.split(' ')[0]}: ${a.nome}`;
         ev.title = `${a.responsavel} — ${a.nome} (${a.status})`;
@@ -504,7 +581,6 @@ async function carregarCalendario() {
 
     cell.appendChild(eventosEl);
 
-    // clique na célula para ver o dia
     if (ehMesAtual && porDia[diaNum]) {
       cell.style.cursor = 'pointer';
       cell.onclick = () => abrirModalDia(diaNum, porDia[diaNum]);
@@ -522,15 +598,18 @@ function abrirModalDia(dia, atividades) {
   document.getElementById('modalDiaHeader').style.color = '#fff';
 
   document.getElementById('modalDiaBody').innerHTML = atividades.map(a => {
-    const cls = classStatus(a.status);
+    const cls   = classStatus(a.status);
     const tempo = a.tempo_seg ? seg2hm(a.tempo_seg) : '—';
+    const editBtn = podeEditar(a)
+      ? `<button class="btn-tbl" onclick="abrirEditar(${a.id});bootstrap.Modal.getInstance(document.getElementById('modalDia')).hide()"><i class="bi bi-pencil"></i></button>`
+      : '';
     return `<tr>
       <td class="fw-semibold">${a.responsavel}</td>
       <td>${a.nome}</td>
       <td><span class="badge bg-secondary bg-opacity-10 text-secondary">${a.tipo}</span></td>
       <td><span class="badge-status ${cls}">${a.status}</span></td>
       <td>${tempo}</td>
-      <td><button class="btn-tbl" onclick="abrirEditar(${a.id});bootstrap.Modal.getInstance(document.getElementById('modalDia')).hide()"><i class="bi bi-pencil"></i></button></td>
+      <td>${editBtn}</td>
     </tr>`;
   }).join('');
 

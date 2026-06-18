@@ -47,9 +47,10 @@ def login():
     if request.method == "POST":
         u = db.login(request.form["nome"].strip(), request.form["senha"])
         if u:
-            session["usuario"] = u["nome"]
-            session["admin"]   = bool(u["admin"])
-            session["cor"]     = u["cor"]
+            session["usuario"]    = u["nome"]
+            session["admin"]      = bool(u["admin"])
+            session["cor"]        = u["cor"]
+            session["responsavel"]= u.get("responsavel_nome","")
             return redirect(url_for("painel"))
         erro = "Usuário ou senha incorretos."
     return render_template("login.html", erro=erro)
@@ -65,7 +66,8 @@ def logout():
 def painel():
     return render_template("index.html",
                            usuario=session["usuario"],
-                           admin=session.get("admin", False))
+                           admin=session.get("admin", False),
+                           responsavel=session.get("responsavel",""))
 
 # ── API: atividades ───────────────────────────────────────────────────────────
 @app.route("/api/atividades")
@@ -88,14 +90,19 @@ def api_criar_atividade():
 @login_required
 def api_editar_atividade(aid):
     d = request.json
-    db.editar_atividade(aid, d["responsavel"], d["nome"], d["tipo"],
-                        d.get("prazo_dia"))
+    if session.get("admin"):
+        db.editar_atividade(aid, d["responsavel"], d["nome"], d["tipo"],
+                            d.get("prazo_dia"))
     return jsonify({"ok": True})
 
 @app.route("/api/atividades/<int:aid>", methods=["DELETE"])
 @login_required
 def api_excluir_atividade(aid):
-    db.excluir_atividade(aid)
+    permanente = request.args.get("permanente") == "1"
+    if permanente and session.get("admin"):
+        db.excluir_atividade_permanente(aid)
+    else:
+        db.excluir_atividade(aid)
     return jsonify({"ok": True})
 
 @app.route("/api/atividades/<int:aid>/restaurar", methods=["POST"])
@@ -114,9 +121,30 @@ def api_ocultas():
 @login_required
 def api_salvar_registro():
     d = request.json
+    # verifica permissão: admin pode tudo; usuário comum só suas atividades
+    if not session.get("admin"):
+        ativs = db.listar_atividades_mes(d["mes_ano"])
+        alvo  = next((a for a in ativs if a["id"] == d["atividade_id"]), None)
+        if alvo and alvo["responsavel"] != session.get("responsavel",""):
+            return jsonify({"erro": "Sem permissão para editar esta atividade."}), 403
     db.salvar_registro(d["atividade_id"], d["mes_ano"],
                        d["status"], d.get("tempo_seg", 0),
-                       d.get("obs", ""), session["usuario"])
+                       d.get("obs", ""), session["usuario"],
+                       d.get("data_conclusao",""))
+    return jsonify({"ok": True})
+
+@app.route("/api/registros/replicar", methods=["POST"])
+@login_required
+def api_replicar_registro():
+    d = request.json
+    # mesma verificação de permissão
+    if not session.get("admin"):
+        ativs = db.listar_atividades_mes(d["mes_ano_origem"])
+        alvo  = next((a for a in ativs if a["id"] == d["atividade_id"]), None)
+        if alvo and alvo["responsavel"] != session.get("responsavel",""):
+            return jsonify({"erro": "Sem permissão."}), 403
+    db.replicar_registro(d["atividade_id"], d["mes_ano_origem"],
+                         d["meses_destino"], session["usuario"])
     return jsonify({"ok": True})
 
 # ── API: responsáveis ─────────────────────────────────────────────────────────
@@ -150,7 +178,8 @@ def api_usuarios():
 @admin_required
 def api_criar_usuario():
     d = request.json
-    ok = db.criar_usuario(d["nome"], d["senha"], d.get("cor","#2E75B6"), d.get("admin",0))
+    ok = db.criar_usuario(d["nome"], d["senha"], d.get("cor","#2E75B6"),
+                          d.get("admin",0), d.get("responsavel_nome",""))
     return (jsonify({"ok": True}), 201) if ok else (jsonify({"erro":"Já existe"}), 409)
 
 @app.route("/api/usuarios/<int:uid>", methods=["DELETE"])

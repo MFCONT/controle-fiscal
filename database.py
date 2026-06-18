@@ -104,17 +104,18 @@ def init_db():
 def _init_pg(conn):
     stmts = [
         """CREATE TABLE IF NOT EXISTS usuarios (
-            id    SERIAL PRIMARY KEY,
-            nome  TEXT UNIQUE NOT NULL,
-            senha TEXT NOT NULL,
-            cor   TEXT DEFAULT '#2E75B6',
-            admin INTEGER DEFAULT 0)""",
+            id              SERIAL PRIMARY KEY,
+            nome            TEXT UNIQUE NOT NULL,
+            senha           TEXT NOT NULL,
+            cor             TEXT DEFAULT '#2E75B6',
+            admin           INTEGER DEFAULT 0,
+            responsavel_nome TEXT DEFAULT '')""",
         """CREATE TABLE IF NOT EXISTS responsaveis (
             id   SERIAL PRIMARY KEY,
             nome TEXT UNIQUE NOT NULL,
             cor  TEXT DEFAULT '#2E75B6')""",
         """CREATE TABLE IF NOT EXISTS atividades (
-            id          INTEGER PRIMARY KEY,
+            id          SERIAL PRIMARY KEY,
             responsavel TEXT NOT NULL,
             nome        TEXT NOT NULL,
             tipo        TEXT NOT NULL,
@@ -122,18 +123,39 @@ def _init_pg(conn):
             padrao      INTEGER DEFAULT 0,
             ativo       INTEGER DEFAULT 1)""",
         """CREATE TABLE IF NOT EXISTS registros (
-            id             SERIAL PRIMARY KEY,
-            atividade_id   INTEGER NOT NULL,
-            mes_ano        TEXT NOT NULL,
-            status         TEXT DEFAULT 'Pendente',
-            tempo_seg      REAL DEFAULT 0,
-            obs            TEXT DEFAULT '',
-            atualizado_por TEXT DEFAULT '',
-            atualizado_em  TEXT DEFAULT '',
+            id              SERIAL PRIMARY KEY,
+            atividade_id    INTEGER NOT NULL,
+            mes_ano         TEXT NOT NULL,
+            status          TEXT DEFAULT 'Pendente',
+            tempo_seg       REAL DEFAULT 0,
+            obs             TEXT DEFAULT '',
+            data_conclusao  TEXT DEFAULT '',
+            atualizado_por  TEXT DEFAULT '',
+            atualizado_em   TEXT DEFAULT '',
             UNIQUE(atividade_id, mes_ano))""",
     ]
     for s in stmts:
         _ex(conn, s)
+
+    # migrations para tabelas já existentes
+    _ex(conn, """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename='atividades_id_seq') THEN
+                CREATE SEQUENCE atividades_id_seq;
+                PERFORM setval('atividades_id_seq', COALESCE((SELECT MAX(id) FROM atividades),35)+1);
+                ALTER TABLE atividades ALTER COLUMN id SET DEFAULT nextval('atividades_id_seq');
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='registros' AND column_name='data_conclusao') THEN
+                ALTER TABLE registros ADD COLUMN data_conclusao TEXT DEFAULT '';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='usuarios' AND column_name='responsavel_nome') THEN
+                ALTER TABLE usuarios ADD COLUMN responsavel_nome TEXT DEFAULT '';
+            END IF;
+        END $$
+    """)
 
     for nome, cor in [("Ângela","#5B4FCF"),("Juliana","#28A745"),("Rebeca","#DC3545")]:
         _ex(conn, "INSERT INTO responsaveis(nome,cor) VALUES(%s,%s) ON CONFLICT DO NOTHING", (nome,cor))
@@ -143,24 +165,25 @@ def _init_pg(conn):
                      VALUES(%s,%s,%s,%s,%s,1,1) ON CONFLICT DO NOTHING""",
             (aid,resp,nome,tipo,prazo))
 
-    _ex(conn, """INSERT INTO usuarios(nome,senha,cor,admin)
-                 VALUES(%s,%s,%s,1) ON CONFLICT DO NOTHING""",
+    _ex(conn, """INSERT INTO usuarios(nome,senha,cor,admin,responsavel_nome)
+                 VALUES(%s,%s,%s,1,'') ON CONFLICT DO NOTHING""",
         ('admin', _hash('admin123'), '#1F4E79'))
 
 def _init_sqlite(conn):
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS usuarios (
-        id    INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome  TEXT UNIQUE NOT NULL,
-        senha TEXT NOT NULL,
-        cor   TEXT DEFAULT '#2E75B6',
-        admin INTEGER DEFAULT 0);
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome             TEXT UNIQUE NOT NULL,
+        senha            TEXT NOT NULL,
+        cor              TEXT DEFAULT '#2E75B6',
+        admin            INTEGER DEFAULT 0,
+        responsavel_nome TEXT DEFAULT '');
     CREATE TABLE IF NOT EXISTS responsaveis (
         id   INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT UNIQUE NOT NULL,
         cor  TEXT DEFAULT '#2E75B6');
     CREATE TABLE IF NOT EXISTS atividades (
-        id          INTEGER PRIMARY KEY,
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
         responsavel TEXT NOT NULL,
         nome        TEXT NOT NULL,
         tipo        TEXT NOT NULL,
@@ -174,16 +197,24 @@ def _init_sqlite(conn):
         status         TEXT DEFAULT 'Pendente',
         tempo_seg      REAL DEFAULT 0,
         obs            TEXT DEFAULT '',
+        data_conclusao TEXT DEFAULT '',
         atualizado_por TEXT DEFAULT '',
         atualizado_em  TEXT DEFAULT '',
         UNIQUE(atividade_id, mes_ano));
     """)
+    # migrations para banco existente
+    for col_sql in [
+        "ALTER TABLE registros ADD COLUMN data_conclusao TEXT DEFAULT ''",
+        "ALTER TABLE usuarios ADD COLUMN responsavel_nome TEXT DEFAULT ''",
+    ]:
+        try: conn.execute(col_sql)
+        except: pass
     for nome,cor in [("Ângela","#5B4FCF"),("Juliana","#28A745"),("Rebeca","#DC3545")]:
         conn.execute("INSERT OR IGNORE INTO responsaveis(nome,cor) VALUES(?,?)",(nome,cor))
     for (aid,resp,nome,tipo,prazo) in ATIVIDADES_PADRAO:
         conn.execute("INSERT OR IGNORE INTO atividades(id,responsavel,nome,tipo,prazo_dia,padrao,ativo) VALUES(?,?,?,?,?,1,1)",
                      (aid,resp,nome,tipo,prazo))
-    conn.execute("INSERT OR IGNORE INTO usuarios(nome,senha,cor,admin) VALUES(?,?,?,1)",
+    conn.execute("INSERT OR IGNORE INTO usuarios(nome,senha,cor,admin,responsavel_nome) VALUES(?,?,?,1,'')",
                  ('admin',_hash('admin123'),'#1F4E79'))
     conn.commit()
 
@@ -201,12 +232,12 @@ def listar_usuarios():
         return _rows(_ex(conn, "SELECT id,nome,cor,admin FROM usuarios"))
     finally: conn.close()
 
-def criar_usuario(nome, senha, cor="#2E75B6", admin=0):
+def criar_usuario(nome, senha, cor="#2E75B6", admin=0, responsavel_nome=""):
     conn = get_db()
     try:
         try:
-            _ex(conn, "INSERT INTO usuarios(nome,senha,cor,admin) VALUES(?,?,?,?)",
-                (nome, _hash(senha), cor, admin))
+            _ex(conn, "INSERT INTO usuarios(nome,senha,cor,admin,responsavel_nome) VALUES(?,?,?,?,?)",
+                (nome, _hash(senha), cor, admin, responsavel_nome))
             _commit(conn); return True
         except Exception: conn.rollback() if USE_PG else None; return False
     finally: conn.close()
@@ -259,11 +290,12 @@ def listar_atividades_mes(mes_ano, responsavel=None, status=None):
     conn = get_db()
     try:
         q = """SELECT a.id, a.responsavel, a.nome, a.tipo, a.prazo_dia, a.padrao,
-                      COALESCE(r.status,'Pendente')  AS status,
-                      COALESCE(r.tempo_seg,0)        AS tempo_seg,
-                      COALESCE(r.obs,'')             AS obs,
-                      COALESCE(r.atualizado_por,'')  AS atualizado_por,
-                      COALESCE(r.atualizado_em,'')   AS atualizado_em
+                      COALESCE(r.status,'Pendente')       AS status,
+                      COALESCE(r.tempo_seg,0)             AS tempo_seg,
+                      COALESCE(r.obs,'')                  AS obs,
+                      COALESCE(r.data_conclusao,'')       AS data_conclusao,
+                      COALESCE(r.atualizado_por,'')       AS atualizado_por,
+                      COALESCE(r.atualizado_em,'')        AS atualizado_em
                FROM atividades a
                LEFT JOIN registros r ON r.atividade_id=a.id AND r.mes_ano=?
                WHERE a.ativo=1"""
@@ -307,6 +339,14 @@ def excluir_atividade(aid):
         _commit(conn)
     finally: conn.close()
 
+def excluir_atividade_permanente(aid):
+    conn = get_db()
+    try:
+        _ex(conn, "DELETE FROM registros WHERE atividade_id=?", (aid,))
+        _ex(conn, "DELETE FROM atividades WHERE id=? AND padrao=0", (aid,))
+        _commit(conn)
+    finally: conn.close()
+
 def restaurar_atividade(aid):
     conn = get_db()
     try:
@@ -322,26 +362,58 @@ def atividades_ocultas():
     finally: conn.close()
 
 # ── registros ──────────────────────────────────────────────────────────────────
-def salvar_registro(atividade_id, mes_ano, status, tempo_seg, obs, usuario):
+def salvar_registro(atividade_id, mes_ano, status, tempo_seg, obs, usuario, data_conclusao=""):
     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     conn = get_db()
     try:
         if USE_PG:
-            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,atualizado_por,atualizado_em)
-                         VALUES(%s,%s,%s,%s,%s,%s,%s)
+            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,data_conclusao,atualizado_por,atualizado_em)
+                         VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
                          ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
                              status=EXCLUDED.status, tempo_seg=EXCLUDED.tempo_seg,
-                             obs=EXCLUDED.obs, atualizado_por=EXCLUDED.atualizado_por,
+                             obs=EXCLUDED.obs, data_conclusao=EXCLUDED.data_conclusao,
+                             atualizado_por=EXCLUDED.atualizado_por,
                              atualizado_em=EXCLUDED.atualizado_em""",
-                (atividade_id, mes_ano, status, tempo_seg, obs, usuario, ts))
+                (atividade_id, mes_ano, status, tempo_seg, obs, data_conclusao, usuario, ts))
         else:
-            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,atualizado_por,atualizado_em)
-                         VALUES(?,?,?,?,?,?,?)
+            _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,data_conclusao,atualizado_por,atualizado_em)
+                         VALUES(?,?,?,?,?,?,?,?)
                          ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
                              status=excluded.status, tempo_seg=excluded.tempo_seg,
-                             obs=excluded.obs, atualizado_por=excluded.atualizado_por,
+                             obs=excluded.obs, data_conclusao=excluded.data_conclusao,
+                             atualizado_por=excluded.atualizado_por,
                              atualizado_em=excluded.atualizado_em""",
-                (atividade_id, mes_ano, status, tempo_seg, obs, usuario, ts))
+                (atividade_id, mes_ano, status, tempo_seg, obs, data_conclusao, usuario, ts))
+        _commit(conn)
+    finally: conn.close()
+
+def replicar_registro(atividade_id, mes_ano_origem, meses_destino, usuario):
+    """Copia status/obs do mês origem para os meses de destino."""
+    conn = get_db()
+    try:
+        cur = _ex(conn, "SELECT status,tempo_seg,obs FROM registros WHERE atividade_id=? AND mes_ano=?",
+                  (atividade_id, mes_ano_origem))
+        orig = _row(cur)
+        if not orig:
+            return
+        ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        for ma in meses_destino:
+            if USE_PG:
+                _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,data_conclusao,atualizado_por,atualizado_em)
+                             VALUES(%s,%s,%s,%s,%s,'', %s,%s)
+                             ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
+                                 status=EXCLUDED.status, tempo_seg=EXCLUDED.tempo_seg,
+                                 obs=EXCLUDED.obs, atualizado_por=EXCLUDED.atualizado_por,
+                                 atualizado_em=EXCLUDED.atualizado_em""",
+                    (atividade_id, ma, orig["status"], orig["tempo_seg"], orig["obs"], usuario, ts))
+            else:
+                _ex(conn, """INSERT INTO registros(atividade_id,mes_ano,status,tempo_seg,obs,data_conclusao,atualizado_por,atualizado_em)
+                             VALUES(?,?,?,?,?,'',?,?)
+                             ON CONFLICT(atividade_id,mes_ano) DO UPDATE SET
+                                 status=excluded.status, tempo_seg=excluded.tempo_seg,
+                                 obs=excluded.obs, atualizado_por=excluded.atualizado_por,
+                                 atualizado_em=excluded.atualizado_em""",
+                    (atividade_id, ma, orig["status"], orig["tempo_seg"], orig["obs"], usuario, ts))
         _commit(conn)
     finally: conn.close()
 
