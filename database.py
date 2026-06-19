@@ -343,7 +343,7 @@ def excluir_atividade_permanente(aid):
     conn = get_db()
     try:
         _ex(conn, "DELETE FROM registros WHERE atividade_id=?", (aid,))
-        _ex(conn, "DELETE FROM atividades WHERE id=? AND padrao=0", (aid,))
+        _ex(conn, "DELETE FROM atividades WHERE id=?", (aid,))
         _commit(conn)
     finally: conn.close()
 

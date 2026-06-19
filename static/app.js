@@ -125,7 +125,7 @@ function renderTabela(ativs) {
     const botoes = podeEditar(a)
       ? `<button class="btn-tbl" title="Editar" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
          <button class="btn-tbl danger" title="Ocultar" onclick="ocultarAtividade(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-eye-slash"></i></button>
-         ${IS_ADMIN && !a.padrao ? `<button class="btn-tbl danger" title="Excluir permanente" onclick="excluirPermanente(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>` : ''}`
+         ${IS_ADMIN ? `<button class="btn-tbl danger" title="Excluir permanente" onclick="excluirPermanente(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>` : ''}`
       : '<span class="text-muted small">—</span>';
     return `<tr>
       <td><span class="fw-semibold">${a.responsavel}</span></td>
