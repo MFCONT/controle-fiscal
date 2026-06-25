@@ -276,52 +276,95 @@ def api_pdf():
 
 def _gerar_pdf(mes_ano, responsavel, atividades, stats):
     from fpdf import FPDF
-    pdf = FPDF()
+
+    class PDF(FPDF):
+        def header(self): pass
+        def footer(self):
+            self.set_y(-12)
+            self.set_font("Helvetica","I",7)
+            self.set_text_color(150,150,150)
+            self.cell(0,5,f"Página {self.page_no()}  |  Controle de Atividades - {mes_ano}",align="C")
+
+    pdf = PDF(orientation="L", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=14)
     pdf.add_page()
-    # cabeçalho
-    pdf.set_fill_color(30, 77, 120)
+
+    # ── Cabeçalho ──
+    pdf.set_fill_color(30,77,120)
     pdf.set_text_color(255,255,255)
-    pdf.set_font("Helvetica","B",16)
-    pdf.cell(0,12,f"Controle de Atividades - {mes_ano}",ln=True,fill=True,align="C")
-    pdf.set_text_color(0,0,0)
+    pdf.set_font("Helvetica","B",15)
+    titulo = f"Controle de Atividades — {mes_ano}"
     if responsavel != "Todos":
-        pdf.set_font("Helvetica","",10)
-        pdf.cell(0,7,f"Responsável: {responsavel}",ln=True)
-    pdf.ln(2)
-    # resumo
-    pdf.set_font("Helvetica","B",11)
-    pdf.cell(0,7,"Resumo",ln=True)
-    pdf.set_font("Helvetica","",10)
-    cnt = stats["contagem"]
-    pdf.cell(0,6,f"Total: {stats['total']}   Realizadas: {cnt.get('Realizada',0)}   "
-             f"Pendentes: {cnt.get('Pendente',0)}   Em Andamento: {cnt.get('Em Andamento',0)}   "
-             f"Conclusão: {stats['pct_conclusao']}%", ln=True)
+        titulo += f"  |  {responsavel}"
+    pdf.cell(0,11,titulo,ln=True,fill=True,align="C")
+    pdf.set_text_color(0,0,0)
     pdf.ln(3)
-    # tabela
-    cores_status = {"Realizada":(198,239,206),"Não Realizada":(255,199,206),
-                    "Em Andamento":(255,235,156),"Pendente":(230,230,230)}
+
+    # ── Resumo ──
+    cnt = stats["contagem"]
     pdf.set_font("Helvetica","B",9)
-    pdf.set_fill_color(30,77,120); pdf.set_text_color(255,255,255)
-    for h,w in [("Responsável",35),("Atividade",80),("Tipo",22),("Status",28),("Tempo",18),("Obs",20)]:
-        pdf.cell(w,7,h,border=1,fill=True)
-    pdf.ln(); pdf.set_text_color(0,0,0)
-    for a in atividades:
-        cor = cores_status.get(a["status"],(230,230,230))
-        pdf.set_fill_color(*cor)
-        pdf.set_font("Helvetica","",8)
-        t = int(a["tempo_seg"])
-        tempo_str = f"{t//3600}h{(t%3600)//60:02d}m" if t else "-"
-        pdf.cell(35,6,a["responsavel"][:20],border=1,fill=True)
-        pdf.cell(80,6,a["nome"][:50],border=1,fill=True)
-        pdf.cell(22,6,a["tipo"][:12],border=1,fill=True)
-        pdf.cell(28,6,a["status"],border=1,fill=True)
-        pdf.cell(18,6,tempo_str,border=1,fill=True,align="C")
-        pdf.cell(20,6,(a["obs"] or "")[:18],border=1,fill=True,ln=True)
+    pdf.set_fill_color(240,244,250)
+    resumo = (f"Total: {stats['total']}   |   Realizadas: {cnt.get('Realizada',0)}   |   "
+              f"Em Andamento: {cnt.get('Em Andamento',0)}   |   "
+              f"Pendentes: {cnt.get('Pendente',0)}   |   "
+              f"Não Realizadas: {cnt.get('Não Realizada',0)}   |   "
+              f"Conclusão: {stats['pct_conclusao']}%")
+    pdf.cell(0,7,resumo,border=1,fill=True,ln=True,align="C")
     pdf.ln(4)
-    pdf.set_font("Helvetica","I",8)
-    pdf.set_text_color(100,100,100)
-    pdf.cell(0,5,f"Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} "
-             f"por {session.get('usuario','')}",ln=True)
+
+    # ── Tabela ──
+    cores_status = {
+        "Realizada":     (198,239,206),
+        "Não Realizada": (255,199,206),
+        "Em Andamento":  (255,235,156),
+        "Pendente":      (230,230,230),
+    }
+    # larguras: total ~277mm (A4 landscape - margens)
+    colunas = [
+        ("Responsável", 30), ("Atividade", 72), ("Tipo", 20),
+        ("Prazo",       22), ("Status",    28), ("Tempo", 16),
+        ("Conclusão",   30), ("Obs",       40), ("Atualizado por", 30),
+    ]
+    pdf.set_font("Helvetica","B",8)
+    pdf.set_fill_color(30,77,120)
+    pdf.set_text_color(255,255,255)
+    for h, w in colunas:
+        pdf.cell(w, 7, h, border=1, fill=True, align="C")
+    pdf.ln()
+    pdf.set_text_color(0,0,0)
+
+    for a in atividades:
+        cor = cores_status.get(a["status"], (230,230,230))
+        pdf.set_fill_color(*cor)
+        pdf.set_font("Helvetica","",7)
+
+        t = int(a.get("tempo_seg") or 0)
+        tempo_str = f"{t//3600}h{(t%3600)//60:02d}m" if t else "—"
+        prazo_str = f"Dia {a['prazo_dia']}" if a.get("prazo_dia") else "—"
+        concl = (a.get("data_conclusao") or "").replace("T"," ")[:16] or "—"
+        atu   = a.get("atualizado_por") or "—"
+        obs   = (a.get("obs") or "—")[:40]
+        nome  = a["nome"]
+
+        # quebra de nome em 2 linhas se necessário
+        h_row = 6
+        pdf.cell(30, h_row, a["responsavel"][:18],        border=1, fill=True)
+        pdf.cell(72, h_row, nome[:52],                    border=1, fill=True)
+        pdf.cell(20, h_row, a["tipo"][:12],               border=1, fill=True, align="C")
+        pdf.cell(22, h_row, prazo_str,                    border=1, fill=True, align="C")
+        pdf.cell(28, h_row, a["status"],                  border=1, fill=True, align="C")
+        pdf.cell(16, h_row, tempo_str,                    border=1, fill=True, align="C")
+        pdf.cell(30, h_row, concl,                        border=1, fill=True, align="C")
+        pdf.cell(40, h_row, obs,                          border=1, fill=True)
+        pdf.cell(30, h_row, atu[:18],                     border=1, fill=True, ln=True)
+
+    pdf.ln(4)
+    pdf.set_font("Helvetica","I",7)
+    pdf.set_text_color(120,120,120)
+    pdf.cell(0,5,
+        f"Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} "
+        f"por {session.get('usuario','')}  |  Total de {len(atividades)} atividades",
+        ln=True)
     return pdf.output()
 
 # ── main ──────────────────────────────────────────────────────────────────────

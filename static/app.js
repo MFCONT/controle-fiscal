@@ -130,7 +130,6 @@ function renderTabela(ativs) {
     const conc  = a.data_conclusao ? `<br><small class="text-muted">${a.data_conclusao.replace('T',' ')}</small>` : '';
     const botoes = podeEditar(a)
       ? `<button class="btn-tbl" title="Editar registro" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
-         ${a.tipo==='Diária' ? `<button class="btn-tbl" title="Marcar dias realizados" onclick="abrirDiasAtiv(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-calendar-check"></i></button>` : ''}
          <button class="btn-tbl danger" title="Ocultar" onclick="ocultarAtividade(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-eye-slash"></i></button>
          ${IS_ADMIN ? `<button class="btn-tbl danger" title="Excluir permanente" onclick="excluirPermanente(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>` : ''}`
       : '<span class="text-muted small">—</span>';
@@ -192,14 +191,67 @@ function abrirEditar(id) {
       document.getElementById('editNomeLbl').textContent = `${a.responsavel} — ${a.nome}`;
     }
 
-    // seção replicar (só para atividades existentes)
-    document.getElementById('secaoReplicar').style.display = '';
+    // seção replicar meses (não-diária) ou dias (diária)
+    const ehDiaria = a.tipo === 'Diária';
+    document.getElementById('secaoReplicar').style.display = ehDiaria ? 'none' : '';
+    document.getElementById('secaoDias').style.display    = ehDiaria ? '' : 'none';
     document.getElementById('chkReplicar').checked = false;
     document.getElementById('replicarOpcoes').style.display = 'none';
-    construirMesesReplicar();
+    document.getElementById('chkDias').checked = false;
+    document.getElementById('diasOpcoes').style.display = 'none';
+    if (!ehDiaria) construirMesesReplicar();
+    else construirDiasModal(+id);
 
     modalAtivBS.show();
   });
+}
+
+let diasModalSelecionados = new Set(), diasModalComRegistro = new Set();
+
+async function construirDiasModal(aid) {
+  const registros = await api(`/api/registros/dia?atividade_id=${aid}&mes_ano=${fmt(mesAtual)}`);
+  diasModalSelecionados = new Set(registros.map(r => r.data));
+  diasModalComRegistro  = new Set(registros.map(r => r.data));
+
+  const ano = mesAtual.getFullYear();
+  const mes = mesAtual.getMonth();
+  const primeiroDia  = new Date(ano, mes, 1);
+  const diasNoMes    = new Date(ano, mes + 1, 0).getDate();
+  const inicioSemana = (primeiroDia.getDay() + 6) % 7;
+  const total = Math.ceil((inicioSemana + diasNoMes) / 7) * 7;
+
+  const container = document.getElementById('diasGridModal');
+  container.innerHTML = '';
+
+  // cabeçalho
+  const hdr = document.createElement('div');
+  hdr.className = 'dias-grid-header';
+  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d => {
+    const el = document.createElement('div'); el.textContent = d; hdr.appendChild(el);
+  });
+  container.appendChild(hdr);
+
+  const grid = document.createElement('div');
+  grid.className = 'dias-grid';
+  for (let i = 0; i < total; i++) {
+    const diaN = i - inicioSemana + 1;
+    const ehMes = diaN >= 1 && diaN <= diasNoMes;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dia-btn' + (!ehMes ? ' outro-mes-dia' : '');
+    btn.textContent = ehMes ? diaN : '';
+    if (ehMes) {
+      const dataFmt = `${String(diaN).padStart(2,'0')}/${String(mes+1).padStart(2,'0')}/${ano}`;
+      if (diasModalComRegistro.has(dataFmt)) btn.classList.add('tem-registro');
+      if (diasModalSelecionados.has(dataFmt)) btn.classList.add('selecionado');
+      btn.onclick = () => {
+        if (diasModalSelecionados.has(dataFmt)) { diasModalSelecionados.delete(dataFmt); btn.classList.remove('selecionado'); }
+        else { diasModalSelecionados.add(dataFmt); btn.classList.add('selecionado'); }
+      };
+    }
+    grid.appendChild(btn);
+  }
+  container.appendChild(grid);
 }
 
 function construirMesesReplicar() {
@@ -220,6 +272,9 @@ function construirMesesReplicar() {
 
 document.getElementById('chkReplicar').addEventListener('change', function() {
   document.getElementById('replicarOpcoes').style.display = this.checked ? '' : 'none';
+});
+document.getElementById('chkDias').addEventListener('change', function() {
+  document.getElementById('diasOpcoes').style.display = this.checked ? '' : 'none';
 });
 
 function preencherSelectResp(id, selecionado) {
@@ -281,13 +336,25 @@ document.getElementById('btnSalvarAtiv').onclick = async () => {
     await api('/api/registros', {method:'POST',
       body: JSON.stringify({atividade_id:+id,mes_ano:fmt(mesAtual),status,tempo_seg:tempo,obs,data_conclusao:concl})});
 
-    // replicar para outros meses?
+    // replicar para outros meses (não-diária)?
     if (document.getElementById('chkReplicar').checked) {
       const meses = [...document.querySelectorAll('.replicar-mes:checked')].map(c=>c.value);
       if (meses.length) {
         await api('/api/registros/replicar', {method:'POST',
           body: JSON.stringify({atividade_id:+id, mes_ano_origem:fmt(mesAtual), meses_destino:meses})});
         toast(`Replicado para ${meses.length} mês(es).`);
+      }
+    }
+
+    // salvar dias marcados (diária)?
+    if (document.getElementById('chkDias').checked) {
+      const add = [...diasModalSelecionados].filter(d => !diasModalComRegistro.has(d));
+      const rem = [...diasModalComRegistro].filter(d => !diasModalSelecionados.has(d));
+      if (add.length || rem.length) {
+        await api('/api/registros/dia', {method:'POST',
+          body: JSON.stringify({atividade_id:+id, mes_ano:fmt(mesAtual),
+                                datas_add:add, datas_rem:rem, status, obs})});
+        toast(`${diasModalSelecionados.size} dia(s) marcados.`);
       }
     }
 
