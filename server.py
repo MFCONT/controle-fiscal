@@ -147,6 +147,59 @@ def api_replicar_registro():
                          d["meses_destino"], session["usuario"])
     return jsonify({"ok": True})
 
+# ── API: registros diários ───────────────────────────────────────────────────
+@app.route("/api/registros/dia")
+@login_required
+def api_registros_dia():
+    aid     = request.args.get("atividade_id", type=int)
+    mes_ano = request.args.get("mes_ano", mes_ano_atual())
+    return jsonify(db.listar_registros_dia(aid, mes_ano))
+
+@app.route("/api/registros/dia/mes")
+@login_required
+def api_registros_dia_mes():
+    mes_ano = request.args.get("mes_ano", mes_ano_atual())
+    return jsonify(db.listar_registros_dia_mes(mes_ano))
+
+@app.route("/api/registros/dia", methods=["POST"])
+@login_required
+def api_salvar_registros_dia():
+    d = request.json
+    aid = d["atividade_id"]
+    # permissão
+    if not session.get("admin"):
+        ativs = db.listar_atividades_mes(d.get("mes_ano", mes_ano_atual()))
+        alvo  = next((a for a in ativs if a["id"] == aid), None)
+        if alvo and alvo["responsavel"] != session.get("responsavel",""):
+            return jsonify({"erro": "Sem permissão."}), 403
+    if d.get("datas_add"):
+        db.salvar_registros_dia(aid, d["datas_add"],
+                                d.get("status","Realizada"),
+                                d.get("obs",""), session["usuario"])
+    if d.get("datas_rem"):
+        db.remover_registros_dia(aid, d["datas_rem"])
+    return jsonify({"ok": True})
+
+# ── API: descrições ───────────────────────────────────────────────────────────
+@app.route("/api/atividades/<int:aid>/descricao", methods=["PUT"])
+@login_required
+def api_descricao(aid):
+    d = request.json
+    # somente admin ou dono da atividade
+    if not session.get("admin"):
+        ativs = db.listar_atividades_mes(mes_ano_atual())
+        alvo  = next((a for a in ativs if a["id"] == aid), None)
+        if alvo and alvo["responsavel"] != session.get("responsavel",""):
+            return jsonify({"erro": "Sem permissão."}), 403
+    db.atualizar_descricao(aid, d.get("descricao",""))
+    return jsonify({"ok": True})
+
+@app.route("/api/descricoes")
+@login_required
+def api_descricoes():
+    resp = request.args.get("responsavel","Todos")
+    return jsonify(db.listar_atividades_com_descricao(resp))
+
 # ── API: responsáveis ─────────────────────────────────────────────────────────
 @app.route("/api/responsaveis")
 @login_required

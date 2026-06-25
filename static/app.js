@@ -70,6 +70,7 @@ document.querySelectorAll('.nav-item[data-tab]').forEach(a => {
     document.getElementById('tab-'+id).classList.add('active');
     if (id==='dashboard') carregarDashboard();
     if (id==='calendario') carregarCalendario();
+    if (id==='descricoes') carregarDescricoes();
     if (id==='gerenciar') carregarGerenciar();
   });
 });
@@ -128,7 +129,8 @@ function renderTabela(ativs) {
     const prazo = prazoLabel(a.prazo_dia, a.status);
     const conc  = a.data_conclusao ? `<br><small class="text-muted">${a.data_conclusao.replace('T',' ')}</small>` : '';
     const botoes = podeEditar(a)
-      ? `<button class="btn-tbl" title="Editar" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
+      ? `<button class="btn-tbl" title="Editar registro" onclick="abrirEditar(${a.id})"><i class="bi bi-pencil"></i></button>
+         ${a.tipo==='Diária' ? `<button class="btn-tbl" title="Marcar dias realizados" onclick="abrirDiasAtiv(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-calendar-check"></i></button>` : ''}
          <button class="btn-tbl danger" title="Ocultar" onclick="ocultarAtividade(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-eye-slash"></i></button>
          ${IS_ADMIN ? `<button class="btn-tbl danger" title="Excluir permanente" onclick="excluirPermanente(${a.id},'${a.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>` : ''}`
       : '<span class="text-muted small">—</span>';
@@ -386,10 +388,10 @@ async function carregarGerenciar() {
 async function carregarResponsaveis() {
   const data = await api('/api/responsaveis');
   responsaveis = data;
-  ['filtroResp','relResp','calFiltroResp'].forEach(id => {
+  ['filtroResp','relResp','calFiltroResp','descFiltroResp'].forEach(id => {
     const sel = document.getElementById(id);
     const val = sel.value;
-    if (id==='filtroResp'||id==='calFiltroResp') sel.innerHTML = '<option value="Todos">Todos os responsáveis</option>';
+    if (['filtroResp','calFiltroResp','descFiltroResp'].includes(id)) sel.innerHTML = '<option value="Todos">Todos os responsáveis</option>';
     else sel.innerHTML = '<option value="Todos">Todos</option>';
     data.forEach(r => sel.innerHTML += `<option value="${r.nome}" ${r.nome===val?'selected':''}>${r.nome}</option>`);
   });
@@ -626,6 +628,168 @@ document.getElementById('calFiltroResp').onchange = () => {
   if (document.getElementById('tab-calendario').classList.contains('active')) {
     carregarCalendario();
   }
+};
+
+/* ── modal de dias (atividades diárias) ──────────── */
+let modalDiasAtivBS, diasSelecionados = new Set(), diasComRegistro = new Set();
+
+document.addEventListener('DOMContentLoaded', () => {
+  modalDiasAtivBS = new bootstrap.Modal(document.getElementById('modalDiasAtiv'));
+});
+
+async function abrirDiasAtiv(aid, nome) {
+  document.getElementById('diasAtivId').value = aid;
+  document.getElementById('modalDiasAtivTitulo').textContent = `Dias realizados — ${nome}`;
+  document.getElementById('diasAtivObs').value = '';
+  document.getElementById('diasAtivStatus').value = 'Realizada';
+
+  const registros = await api(`/api/registros/dia?atividade_id=${aid}&mes_ano=${fmt(mesAtual)}`);
+  diasSelecionados = new Set(registros.map(r => r.data));
+  diasComRegistro  = new Set(registros.map(r => r.data));
+
+  renderDiasGrid();
+  modalDiasAtivBS.show();
+}
+
+function renderDiasGrid() {
+  const ano = mesAtual.getFullYear();
+  const mes = mesAtual.getMonth();
+  const primeiroDia = new Date(ano, mes, 1);
+  const diasNoMes   = new Date(ano, mes + 1, 0).getDate();
+  const inicioSemana = (primeiroDia.getDay() + 6) % 7;
+
+  const container = document.getElementById('diasAtivGrid');
+  container.innerHTML = '';
+
+  // cabeçalho
+  const hdr = document.createElement('div');
+  hdr.className = 'dias-grid-header';
+  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d => {
+    const el = document.createElement('div');
+    el.textContent = d;
+    hdr.appendChild(el);
+  });
+  container.appendChild(hdr);
+
+  const grid = document.createElement('div');
+  grid.className = 'dias-grid';
+  const total = Math.ceil((inicioSemana + diasNoMes) / 7) * 7;
+
+  for (let i = 0; i < total; i++) {
+    const btn = document.createElement('button');
+    const diaN = i - inicioSemana + 1;
+    const ehMes = diaN >= 1 && diaN <= diasNoMes;
+    btn.className = 'dia-btn' + (!ehMes ? ' outro-mes-dia' : '');
+    btn.textContent = ehMes ? diaN : '';
+
+    if (ehMes) {
+      const dataFmt = `${String(diaN).padStart(2,'0')}/${String(mes+1).padStart(2,'0')}/${ano}`;
+      if (diasComRegistro.has(dataFmt)) {
+        btn.classList.add('tem-registro');
+        const dot = document.createElement('div');
+        dot.className = 'dia-dot';
+        btn.appendChild(dot);
+      }
+      if (diasSelecionados.has(dataFmt)) btn.classList.add('selecionado');
+      btn.onclick = () => {
+        if (diasSelecionados.has(dataFmt)) {
+          diasSelecionados.delete(dataFmt);
+          btn.classList.remove('selecionado');
+        } else {
+          diasSelecionados.add(dataFmt);
+          btn.classList.add('selecionado');
+        }
+        document.getElementById('diasAtivContador').textContent =
+          `${diasSelecionados.size} dia(s) selecionado(s)`;
+      };
+    }
+    grid.appendChild(btn);
+  }
+  container.appendChild(grid);
+  document.getElementById('diasAtivContador').textContent =
+    `${diasSelecionados.size} dia(s) selecionado(s)`;
+}
+
+document.getElementById('btnSalvarDias').onclick = async () => {
+  const aid    = +document.getElementById('diasAtivId').value;
+  const status = document.getElementById('diasAtivStatus').value;
+  const obs    = document.getElementById('diasAtivObs').value.trim();
+
+  const add = [...diasSelecionados].filter(d => !diasComRegistro.has(d));
+  const rem = [...diasComRegistro].filter(d => !diasSelecionados.has(d));
+
+  try {
+    await api('/api/registros/dia', {method:'POST',
+      body: JSON.stringify({atividade_id:aid, mes_ano:fmt(mesAtual),
+                            datas_add:add, datas_rem:rem, status, obs})});
+    modalDiasAtivBS.hide();
+    toast(`${diasSelecionados.size} dia(s) salvos.`);
+    carregarAtividades();
+    if (document.getElementById('tab-calendario').classList.contains('active'))
+      carregarCalendario();
+  } catch(e) { toast(e.message,'danger'); }
+};
+
+/* ── aba descrições ──────────────────────────────── */
+let modalDescricaoBS;
+document.addEventListener('DOMContentLoaded', () => {
+  modalDescricaoBS = new bootstrap.Modal(document.getElementById('modalDescricao'));
+});
+
+async function carregarDescricoes() {
+  const resp = document.getElementById('descFiltroResp').value;
+  const data = await api(`/api/descricoes?responsavel=${encodeURIComponent(resp)}`);
+
+  // agrupa por responsável
+  const grupos = {};
+  data.forEach(a => {
+    if (!grupos[a.responsavel]) grupos[a.responsavel] = [];
+    grupos[a.responsavel].push(a);
+  });
+
+  const container = document.getElementById('descricoesList');
+  container.innerHTML = Object.entries(grupos).map(([resp, ativs]) => `
+    <div class="desc-grupo">
+      <div class="desc-grupo-titulo"><i class="bi bi-person-fill"></i> ${resp}</div>
+      ${ativs.map(a => {
+        const podeEdit = IS_ADMIN || USER_RESP === a.responsavel;
+        const texto = a.descricao || '';
+        return `<div class="desc-item">
+          <div>
+            <div class="desc-item-nome">${a.nome}</div>
+            <div class="desc-item-tipo">${a.tipo}</div>
+          </div>
+          <div class="desc-item-texto ${texto ? '' : 'vazio'}">${texto || 'Sem descrição cadastrada.'}</div>
+          ${podeEdit ? `<button class="btn btn-sm btn-outline-primary btn-desc-edit"
+            onclick="abrirDescricao(${a.id},'${a.nome.replace(/'/g,"\\'")}','${(a.descricao||'').replace(/'/g,"\\'").replace(/\n/g,'\\n')}')">
+            <i class="bi bi-pencil"></i></button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+function abrirDescricao(aid, nome, textoAtual) {
+  document.getElementById('descricaoAid').value = aid;
+  document.getElementById('modalDescricaoTitulo').textContent = nome;
+  document.getElementById('descricaoTexto').value = textoAtual.replace(/\\n/g, '\n');
+  modalDescricaoBS.show();
+}
+
+document.getElementById('btnSalvarDescricao').onclick = async () => {
+  const aid  = +document.getElementById('descricaoAid').value;
+  const desc = document.getElementById('descricaoTexto').value.trim();
+  try {
+    await api(`/api/atividades/${aid}/descricao`, {method:'PUT',
+      body: JSON.stringify({descricao: desc})});
+    modalDescricaoBS.hide();
+    toast('Descrição salva.');
+    carregarDescricoes();
+  } catch(e) { toast(e.message,'danger'); }
+};
+
+document.getElementById('descFiltroResp').onchange = () => {
+  if (document.getElementById('tab-descricoes').classList.contains('active'))
+    carregarDescricoes();
 };
 
 /* ── inicialização ───────────────────────────────── */

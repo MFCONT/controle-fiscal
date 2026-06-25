@@ -20,6 +20,7 @@
     <a href="#" class="nav-item" data-tab="calendario"><i class="bi bi-calendar3"></i> Calendário</a>
     <a href="#" class="nav-item" data-tab="dashboard"><i class="bi bi-bar-chart-fill"></i> Dashboard</a>
     <a href="#" class="nav-item" data-tab="relatorios"><i class="bi bi-file-earmark-pdf"></i> Relatórios</a>
+    <a href="#" class="nav-item" data-tab="descricoes"><i class="bi bi-journal-text"></i> Descrições</a>
     <a href="#" class="nav-item" data-tab="gerenciar"><i class="bi bi-gear-fill"></i> Gerenciar</a>
   </nav>
   <div class="sidebar-footer">
@@ -149,6 +150,19 @@
     </div>
   </div>
 
+  <!-- TAB: DESCRIÇÕES -->
+  <div class="tab-pane" id="tab-descricoes">
+    <div class="page-header">
+      <h5 class="page-title"><i class="bi bi-journal-text"></i> Descrições das Atividades</h5>
+      <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" id="descFiltroResp" style="width:180px">
+          <option value="Todos">Todos os responsáveis</option>
+        </select>
+      </div>
+    </div>
+    <div id="descricoesList"></div>
+  </div>
+
   <!-- TAB: GERENCIAR -->
   <div class="tab-pane" id="tab-gerenciar">
     <div class="page-header">
@@ -197,6 +211,52 @@
   </div>
 
 </div><!-- /main-content -->
+
+<!-- MODAL: dias da atividade diária -->
+<div class="modal fade" id="modalDiasAtiv" tabindex="-1">
+<div class="modal-dialog modal-lg">
+<div class="modal-content">
+  <div class="modal-header bg-primary text-white">
+    <h5 class="modal-title" id="modalDiasAtivTitulo">Marcar dias realizados</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="diasAtivId">
+    <p class="text-muted small mb-2">Selecione os dias em que esta atividade foi realizada no mês. Clique novamente para desmarcar.</p>
+    <div class="mb-3 d-flex gap-2 align-items-center">
+      <label class="form-label mb-0">Status:</label>
+      <select class="form-select form-select-sm" id="diasAtivStatus" style="width:160px">
+        <option>Realizada</option><option>Em Andamento</option><option>Não Realizada</option>
+      </select>
+      <input class="form-control form-control-sm" id="diasAtivObs" placeholder="Observação (opcional)" style="max-width:260px">
+    </div>
+    <div id="diasAtivGrid" class="dias-grid"></div>
+  </div>
+  <div class="modal-footer">
+    <div class="me-auto text-muted small" id="diasAtivContador">0 dias selecionados</div>
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button class="btn btn-primary" id="btnSalvarDias">Salvar dias</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: editar descrição -->
+<div class="modal fade" id="modalDescricao" tabindex="-1">
+<div class="modal-dialog modal-lg">
+<div class="modal-content">
+  <div class="modal-header bg-primary text-white">
+    <h5 class="modal-title" id="modalDescricaoTitulo">Descrição da Atividade</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="descricaoAid">
+    <label class="form-label">Descreva o procedimento / instruções desta atividade:</label>
+    <textarea class="form-control" id="descricaoTexto" rows="8" placeholder="Descreva passo a passo como executar esta atividade..."></textarea>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button class="btn btn-primary" id="btnSalvarDescricao">Salvar</button>
+  </div>
+</div></div></div>
 
 <!-- MODAL: detalhes do dia -->
 <div class="modal fade" id="modalDia" tabindex="-1">

@@ -305,6 +305,81 @@ body { font-family: "Segoe UI", sans-serif; background: var(--bg); color: var(--
 .leg-item { display: flex; align-items: center; gap: 5px; }
 .leg-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
 
+/* ── GRID DE DIAS (modal diária) ─────────────────── */
+.dias-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.dias-grid-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.dias-grid-header > div {
+  text-align: center;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px;
+}
+.dias-grid-header > div:nth-child(6),
+.dias-grid-header > div:nth-child(7) { color: #dc3545; }
+.dia-btn {
+  aspect-ratio: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--text);
+  transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+}
+.dia-btn:hover { border-color: var(--primary-light); background: #eef4ff; }
+.dia-btn.selecionado { background: var(--primary); color: #fff; border-color: var(--primary); }
+.dia-btn.tem-registro { border-color: #28a745; }
+.dia-btn.tem-registro.selecionado { background: #28a745; border-color: #28a745; }
+.dia-btn.outro-mes-dia { opacity: .25; cursor: default; pointer-events: none; }
+.dia-btn .dia-dot { width: 5px; height: 5px; border-radius: 50%; background: #28a745; }
+.dia-btn.selecionado .dia-dot { background: rgba(255,255,255,.7); }
+
+/* ── DESCRIÇÕES ──────────────────────────────────── */
+.desc-grupo { margin-bottom: 24px; }
+.desc-grupo-titulo {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary-light);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+.desc-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.desc-item-nome { font-weight: 600; font-size: .9rem; min-width: 200px; }
+.desc-item-tipo { font-size: .75rem; color: var(--muted); }
+.desc-item-texto {
+  flex: 1;
+  font-size: .85rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.desc-item-texto.vazio { color: var(--muted); font-style: italic; }
+.btn-desc-edit { flex-shrink: 0; }
+
 /* ── RESPONSIVE ──────────────────────────────────── */
 @media (max-width: 640px) {
   .sidebar { position: fixed; z-index: 200; height: 100vh; }

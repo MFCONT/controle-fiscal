@@ -121,7 +121,17 @@ def _init_pg(conn):
             tipo        TEXT NOT NULL,
             prazo_dia   INTEGER,
             padrao      INTEGER DEFAULT 0,
-            ativo       INTEGER DEFAULT 1)""",
+            ativo       INTEGER DEFAULT 1,
+            descricao   TEXT DEFAULT '')""",
+        """CREATE TABLE IF NOT EXISTS registros_dia (
+            id           SERIAL PRIMARY KEY,
+            atividade_id INTEGER NOT NULL,
+            data         TEXT NOT NULL,
+            status       TEXT DEFAULT 'Realizada',
+            obs          TEXT DEFAULT '',
+            usuario      TEXT DEFAULT '',
+            atualizado_em TEXT DEFAULT '',
+            UNIQUE(atividade_id, data))""",
         """CREATE TABLE IF NOT EXISTS registros (
             id              SERIAL PRIMARY KEY,
             atividade_id    INTEGER NOT NULL,
@@ -153,6 +163,22 @@ def _init_pg(conn):
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='usuarios' AND column_name='responsavel_nome') THEN
                 ALTER TABLE usuarios ADD COLUMN responsavel_nome TEXT DEFAULT '';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='atividades' AND column_name='descricao') THEN
+                ALTER TABLE atividades ADD COLUMN descricao TEXT DEFAULT '';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                           WHERE table_name='registros_dia') THEN
+                CREATE TABLE registros_dia (
+                    id            SERIAL PRIMARY KEY,
+                    atividade_id  INTEGER NOT NULL,
+                    data          TEXT NOT NULL,
+                    status        TEXT DEFAULT 'Realizada',
+                    obs           TEXT DEFAULT '',
+                    usuario       TEXT DEFAULT '',
+                    atualizado_em TEXT DEFAULT '',
+                    UNIQUE(atividade_id, data));
             END IF;
         END $$
     """)
@@ -189,7 +215,17 @@ def _init_sqlite(conn):
         tipo        TEXT NOT NULL,
         prazo_dia   INTEGER,
         padrao      INTEGER DEFAULT 0,
-        ativo       INTEGER DEFAULT 1);
+        ativo       INTEGER DEFAULT 1,
+        descricao   TEXT DEFAULT '');
+    CREATE TABLE IF NOT EXISTS registros_dia (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        atividade_id  INTEGER NOT NULL,
+        data          TEXT NOT NULL,
+        status        TEXT DEFAULT 'Realizada',
+        obs           TEXT DEFAULT '',
+        usuario       TEXT DEFAULT '',
+        atualizado_em TEXT DEFAULT '',
+        UNIQUE(atividade_id, data));
     CREATE TABLE IF NOT EXISTS registros (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
         atividade_id   INTEGER NOT NULL,
@@ -206,6 +242,7 @@ def _init_sqlite(conn):
     for col_sql in [
         "ALTER TABLE registros ADD COLUMN data_conclusao TEXT DEFAULT ''",
         "ALTER TABLE usuarios ADD COLUMN responsavel_nome TEXT DEFAULT ''",
+        "ALTER TABLE atividades ADD COLUMN descricao TEXT DEFAULT ''",
     ]:
         try: conn.execute(col_sql)
         except: pass
@@ -415,6 +452,87 @@ def replicar_registro(atividade_id, mes_ano_origem, meses_destino, usuario):
                                  atualizado_em=excluded.atualizado_em""",
                     (atividade_id, ma, orig["status"], orig["tempo_seg"], orig["obs"], usuario, ts))
         _commit(conn)
+    finally: conn.close()
+
+# ── registros diários ──────────────────────────────────────────────────────────
+def listar_registros_dia(atividade_id, mes_ano):
+    """Retorna lista de datas (DD/MM/YYYY) com registro para o mês."""
+    m, y = mes_ano.split('/')
+    prefixo = f"/{m}/{y}"
+    conn = get_db()
+    try:
+        cur = _ex(conn,
+            "SELECT data, status, obs FROM registros_dia WHERE atividade_id=? AND data LIKE ?",
+            (atividade_id, f"%{prefixo}"))
+        return _rows(cur)
+    finally: conn.close()
+
+def listar_registros_dia_mes(mes_ano):
+    """Retorna todos os registros diários do mês para o calendário."""
+    m, y = mes_ano.split('/')
+    prefixo = f"/{m}/{y}"
+    conn = get_db()
+    try:
+        cur = _ex(conn, """
+            SELECT rd.atividade_id, rd.data, rd.status, rd.obs,
+                   a.nome, a.responsavel
+            FROM registros_dia rd
+            JOIN atividades a ON a.id=rd.atividade_id
+            WHERE rd.data LIKE ? AND a.ativo=1
+        """, (f"%{prefixo}",))
+        return _rows(cur)
+    finally: conn.close()
+
+def salvar_registros_dia(atividade_id, datas, status, obs, usuario):
+    """Salva (upsert) registros diários para lista de datas."""
+    ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    conn = get_db()
+    try:
+        if USE_PG:
+            for data in datas:
+                _ex(conn, """INSERT INTO registros_dia(atividade_id,data,status,obs,usuario,atualizado_em)
+                             VALUES(%s,%s,%s,%s,%s,%s)
+                             ON CONFLICT(atividade_id,data) DO UPDATE SET
+                             status=EXCLUDED.status, obs=EXCLUDED.obs,
+                             usuario=EXCLUDED.usuario, atualizado_em=EXCLUDED.atualizado_em""",
+                    (atividade_id, data, status, obs, usuario, ts))
+        else:
+            for data in datas:
+                _ex(conn, """INSERT INTO registros_dia(atividade_id,data,status,obs,usuario,atualizado_em)
+                             VALUES(?,?,?,?,?,?)
+                             ON CONFLICT(atividade_id,data) DO UPDATE SET
+                             status=excluded.status, obs=excluded.obs,
+                             usuario=excluded.usuario, atualizado_em=excluded.atualizado_em""",
+                    (atividade_id, data, status, obs, usuario, ts))
+        _commit(conn)
+    finally: conn.close()
+
+def remover_registros_dia(atividade_id, datas):
+    """Remove registros diários para datas desmarcadas."""
+    conn = get_db()
+    try:
+        for data in datas:
+            _ex(conn, "DELETE FROM registros_dia WHERE atividade_id=? AND data=?",
+                (atividade_id, data))
+        _commit(conn)
+    finally: conn.close()
+
+def atualizar_descricao(aid, descricao):
+    conn = get_db()
+    try:
+        _ex(conn, "UPDATE atividades SET descricao=? WHERE id=?", (descricao, aid))
+        _commit(conn)
+    finally: conn.close()
+
+def listar_atividades_com_descricao(responsavel=None):
+    conn = get_db()
+    try:
+        q = "SELECT id, responsavel, nome, tipo, descricao FROM atividades WHERE ativo=1"
+        params = []
+        if responsavel and responsavel != "Todos":
+            q += " AND responsavel=?"; params.append(responsavel)
+        q += " ORDER BY responsavel, id"
+        return _rows(_ex(conn, q, params))
     finally: conn.close()
 
 # ── dashboard ──────────────────────────────────────────────────────────────────
