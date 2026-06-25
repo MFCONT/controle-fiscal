@@ -29,13 +29,18 @@ function classStatus(s) {
 }
 
 function prazoLabel(prazo_dia, status) {
-  if (!prazo_dia || status==='Realizada') return '';
-  const hoje = new Date();
-  const venc = new Date(hoje.getFullYear(), hoje.getMonth(), prazo_dia);
+  if (!prazo_dia) return '';
+  const m   = mesAtual.getMonth();
+  const y   = mesAtual.getFullYear();
+  const data = `${String(prazo_dia).padStart(2,'0')}/${String(m+1).padStart(2,'0')}/${y}`;
+  if (status === 'Realizada') return `<span class="prazo-ok">${data}</span>`;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const venc = new Date(y, m, prazo_dia);
   const diff = Math.ceil((venc-hoje)/(1000*86400));
-  if (diff < 0) return `<span class="prazo-late">Vencido há ${-diff}d</span>`;
-  if (diff <= 3) return `<span class="prazo-warn">Vence em ${diff}d</span>`;
-  return `<span class="prazo-ok">Dia ${prazo_dia}</span>`;
+  if (diff < 0) return `<span class="prazo-late">${data}<br><small>Vencido há ${-diff}d</small></span>`;
+  if (diff === 0) return `<span class="prazo-warn">${data}<br><small>Vence hoje</small></span>`;
+  if (diff <= 3)  return `<span class="prazo-warn">${data}<br><small>Vence em ${diff}d</small></span>`;
+  return `<span class="prazo-ok">${data}</span>`;
 }
 
 /* ── navegação de meses ──────────────────────────── */
@@ -531,7 +536,8 @@ async function carregarCalendario() {
   const primeiroDia  = new Date(ano, mes, 1);
   const ultimoDia    = new Date(ano, mes + 1, 0);
   const diasNoMes    = ultimoDia.getDate();
-  const inicioSemana = primeiroDia.getDay(); // 0=dom (padrão br)
+  // calendário segunda-feira primeiro: dom(0)→6, seg(1)→0, ..., sab(6)→5
+  const inicioSemana = (primeiroDia.getDay() + 6) % 7;
 
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';

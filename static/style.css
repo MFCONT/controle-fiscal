@@ -227,8 +227,8 @@ body { font-family: "Segoe UI", sans-serif; background: var(--bg); color: var(--
   letter-spacing: .5px;
 }
 .cal-header-dias > div { padding: 8px 4px; }
-.cal-header-dias > div:first-child { color: #ffb3b3; }
-.cal-header-dias > div:last-child  { color: #b3d4ff; }
+.cal-header-dias > div:nth-child(6) { color: #ffb3b3; }
+.cal-header-dias > div:nth-child(7) { color: #ffb3b3; }
 
 .cal-grid {
   display: grid;
@@ -258,8 +258,8 @@ body { font-family: "Segoe UI", sans-serif; background: var(--bg); color: var(--
   width: 26px; height: 26px;
   display: flex; align-items: center; justify-content: center;
 }
-.cal-cell:nth-child(7n+1) .cal-dia-num { color: #dc3545; }
-.cal-cell:nth-child(7n)   .cal-dia-num { color: #2e75b6; }
+.cal-cell:nth-child(7n+6) .cal-dia-num { color: #dc3545; }
+.cal-cell:nth-child(7n)   .cal-dia-num { color: #dc3545; }
 
 .cal-dia-num {
   font-size: .82rem;
