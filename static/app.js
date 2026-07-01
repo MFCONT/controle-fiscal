@@ -671,12 +671,12 @@ async function carregarCalendario() {
 
     if (ehMesAtual && porDia[diaNum]) {
       const lista = porDia[diaNum];
-      const MAX_VIS = 3;
+      const MAX_VIS = 5;
       lista.slice(0, MAX_VIS).forEach(a => {
         const ev = document.createElement('div');
         const cls = {'Realizada':'ev-realizada','Em Andamento':'ev-andamento','Não Realizada':'ev-nao','Pendente':'ev-pendente'}[a.status]||'ev-pendente';
         ev.className = `cal-evento ${cls}`;
-        ev.textContent = `${a.responsavel.split(' ')[0]}: ${a.nome}`;
+        ev.textContent = a.responsavel.split(' ')[0];
         ev.onmouseenter = (e) => mostrarTooltipCal(e, lista, diaNum);
         ev.onmouseleave = () => ocultarTooltipCal();
         ev.onclick = (e) => { e.stopPropagation(); ocultarTooltipCal(); abrirModalDiaDetalhe(a); };
