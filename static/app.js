@@ -2,6 +2,9 @@
 let mesAtual = new Date();
 let responsaveis = [];
 let charts = {};
+let atividadesCache = [];   // cache para busca/ordenação
+let sortCol = '';
+let sortDir = 1;            // 1=asc, -1=desc
 
 /* ── utilidades ──────────────────────────────────── */
 const fmt     = d => `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
@@ -93,9 +96,29 @@ async function carregarAtividades() {
   const resp = document.getElementById('filtroResp').value;
   const st   = document.getElementById('filtroStatus').value;
   const data = await api(`/api/atividades?mes_ano=${fmt(mesAtual)}&responsavel=${encodeURIComponent(resp)}&status=${encodeURIComponent(st)}`);
-  renderTabela(data);
+  atividadesCache = data;
+  aplicarFiltroEOrdem();
   renderCards(data);
   verificarVencimentos(data);
+}
+
+function aplicarFiltroEOrdem() {
+  const busca = (document.getElementById('buscaAtiv')?.value || '').toLowerCase();
+  let lista = atividadesCache.filter(a => {
+    if (!busca) return true;
+    return [a.responsavel, a.nome, a.tipo, a.status, a.obs || ''].some(
+      v => v.toLowerCase().includes(busca)
+    );
+  });
+  if (sortCol) {
+    lista = [...lista].sort((a, b) => {
+      let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
+      if (sortCol === 'prazo_dia') { va = va || 99; vb = vb || 99; }
+      if (typeof va === 'string') return va.localeCompare(vb) * sortDir;
+      return (va - vb) * sortDir;
+    });
+  }
+  renderTabela(lista);
 }
 
 function renderCards(ativs) {
@@ -379,9 +402,22 @@ async function excluirPermanente(id, nome) {
   carregarAtividades();
 }
 
-/* ── filtros ─────────────────────────────────────── */
+/* ── filtros e ordenação ─────────────────────────── */
 document.getElementById('filtroResp').onchange   = carregarAtividades;
 document.getElementById('filtroStatus').onchange = carregarAtividades;
+
+document.getElementById('buscaAtiv')?.addEventListener('input', aplicarFiltroEOrdem);
+
+document.querySelectorAll('.th-sort').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) sortDir = -sortDir;
+    else { sortCol = col; sortDir = 1; }
+    document.querySelectorAll('.th-sort').forEach(t => t.classList.remove('asc','desc'));
+    th.classList.add(sortDir === 1 ? 'asc' : 'desc');
+    aplicarFiltroEOrdem();
+  });
+});
 
 /* ── dashboard ───────────────────────────────────── */
 async function carregarDashboard() {
@@ -641,14 +677,17 @@ async function carregarCalendario() {
         const cls = {'Realizada':'ev-realizada','Em Andamento':'ev-andamento','Não Realizada':'ev-nao','Pendente':'ev-pendente'}[a.status]||'ev-pendente';
         ev.className = `cal-evento ${cls}`;
         ev.textContent = `${a.responsavel.split(' ')[0]}: ${a.nome}`;
-        ev.title = `${a.responsavel} — ${a.nome} (${a.status})`;
-        ev.onclick = (e) => { e.stopPropagation(); abrirModalDia(diaNum, lista); };
+        ev.onmouseenter = (e) => mostrarTooltipCal(e, lista, diaNum);
+        ev.onmouseleave = () => ocultarTooltipCal();
+        ev.onclick = (e) => { e.stopPropagation(); ocultarTooltipCal(); abrirModalDiaDetalhe(a); };
         eventosEl.appendChild(ev);
       });
       if (lista.length > MAX_VIS) {
         const mais = document.createElement('div');
         mais.className = 'cal-mais';
         mais.textContent = `+${lista.length - MAX_VIS} mais`;
+        mais.onmouseenter = (e) => mostrarTooltipCal(e, lista, diaNum);
+        mais.onmouseleave = () => ocultarTooltipCal();
         mais.onclick = (e) => { e.stopPropagation(); abrirModalDia(diaNum, lista); };
         eventosEl.appendChild(mais);
       }
@@ -688,6 +727,49 @@ function abrirModalDia(dia, atividades) {
     </tr>`;
   }).join('');
 
+  modalDiaBS.show();
+}
+
+let _tooltipTimer = null;
+function mostrarTooltipCal(e, lista, diaNum) {
+  ocultarTooltipCal();
+  const tt = document.getElementById('calTooltip');
+  const mes = mesAtual.toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+  tt.innerHTML = `<div class="cal-tooltip-titulo">${String(diaNum).padStart(2,'0')} de ${mes}</div>`
+    + lista.map(a => {
+        const cor = {'Realizada':'#28a745','Em Andamento':'#ffc107','Não Realizada':'#dc3545','Pendente':'#6c757d'}[a.status]||'#6c757d';
+        return `<div class="cal-tooltip-item"><span class="cal-tooltip-dot" style="background:${cor}"></span><strong>${a.responsavel.split(' ')[0]}</strong>: ${a.nome} <em style="opacity:.7">(${a.status})</em></div>`;
+      }).join('');
+  tt.style.display = 'block';
+  const x = Math.min(e.clientX + 12, window.innerWidth - 260);
+  const y = Math.min(e.clientY + 12, window.innerHeight - tt.offsetHeight - 10);
+  tt.style.left = x + 'px';
+  tt.style.top  = y + 'px';
+}
+function ocultarTooltipCal() {
+  const tt = document.getElementById('calTooltip');
+  if (tt) tt.style.display = 'none';
+}
+function abrirModalDiaDetalhe(a) {
+  document.getElementById('modalDiaTitulo').textContent = a.nome;
+  document.getElementById('modalDiaHeader').style.background = 'var(--primary)';
+  document.getElementById('modalDiaHeader').style.color = '#fff';
+  const cls = classStatus(a.status);
+  const tempo = a.tempo_seg ? seg2hm(a.tempo_seg) : '—';
+  const desc = a.descricao ? `<p class="mt-2 text-muted">${a.descricao}</p>` : '';
+  const obs = a.obs ? `<p class="mt-1"><strong>Obs:</strong> ${a.obs}</p>` : '';
+  document.getElementById('modalDiaBody').innerHTML = `<tr>
+    <td colspan="6">
+      <div class="p-2">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge bg-secondary bg-opacity-10 text-secondary">${a.tipo}</span>
+          <span class="badge-status ${cls}">${a.status}</span>
+          <span class="text-muted">${tempo}</span>
+          ${a.responsavel ? `<span class="ms-auto fw-semibold">${a.responsavel}</span>` : ''}
+        </div>
+        ${desc}${obs}
+      </div>
+    </td></tr>`;
   modalDiaBS.show();
 }
 

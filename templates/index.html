@@ -75,13 +75,22 @@
     <!-- cards resumo -->
     <div class="summary-cards" id="summaryCards"></div>
 
+    <!-- busca rápida -->
+    <div class="mb-2">
+      <input class="form-control form-control-sm" id="buscaAtiv" placeholder="🔍 Buscar por responsável, atividade, tipo, status, obs...">
+    </div>
+
     <!-- tabela -->
     <div class="table-wrapper">
       <table class="table-ativ" id="tabelaAtiv">
         <thead>
           <tr>
-            <th>Responsável</th><th>Atividade</th><th>Tipo</th>
-            <th>Prazo</th><th>Status</th><th>Tempo</th><th>Obs</th><th>Ações</th>
+            <th class="th-sort" data-col="responsavel">Responsável <span class="sort-icon">⇅</span></th>
+            <th class="th-sort" data-col="nome">Atividade <span class="sort-icon">⇅</span></th>
+            <th class="th-sort" data-col="tipo">Tipo <span class="sort-icon">⇅</span></th>
+            <th class="th-sort" data-col="prazo_dia">Prazo <span class="sort-icon">⇅</span></th>
+            <th class="th-sort" data-col="status">Status <span class="sort-icon">⇅</span></th>
+            <th>Tempo</th><th>Obs</th><th>Ações</th>
           </tr>
         </thead>
         <tbody id="tbodyAtiv"></tbody>
@@ -257,6 +266,9 @@
     <button class="btn btn-primary" id="btnSalvarDescricao">Salvar</button>
   </div>
 </div></div></div>
+
+<!-- Tooltip flutuante do calendário -->
+<div id="calTooltip" class="cal-tooltip" style="display:none;position:fixed;z-index:9999;pointer-events:none;"></div>
 
 <!-- MODAL: detalhes do dia -->
 <div class="modal fade" id="modalDia" tabindex="-1">

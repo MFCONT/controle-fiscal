@@ -273,9 +273,10 @@ body { font-family: "Segoe UI", sans-serif; background: var(--bg); color: var(--
 
 .cal-eventos { display: flex; flex-direction: column; gap: 2px; }
 
+/* evento compacto — só uma barrinha colorida */
 .cal-evento {
-  font-size: .72rem;
-  padding: 2px 6px;
+  font-size: .68rem;
+  padding: 2px 5px;
   border-radius: 4px;
   color: #fff;
   font-weight: 600;
@@ -283,22 +284,76 @@ body { font-family: "Segoe UI", sans-serif; background: var(--bg); color: var(--
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  line-height: 1.5;
+  line-height: 1.4;
+  max-width: 100%;
+  transition: filter .15s, box-shadow .15s;
 }
-.cal-evento:hover { filter: brightness(1.1); }
-.cal-evento.ev-realizada   { background: #28a745; }
-.cal-evento.ev-andamento   { background: #e6a800; color: #000; }
-.cal-evento.ev-nao         { background: #dc3545; }
-.cal-evento.ev-pendente    { background: #6c757d; }
+.cal-evento:hover {
+  filter: brightness(1.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  z-index: 2;
+  position: relative;
+}
+.cal-evento.ev-realizada { background: #28a745; }
+.cal-evento.ev-andamento { background: #e6a800; color: #000; }
+.cal-evento.ev-nao       { background: #dc3545; }
+.cal-evento.ev-pendente  { background: #6c757d; }
 
 .cal-mais {
-  font-size: .7rem;
+  font-size: .68rem;
   color: var(--primary);
   font-weight: 600;
   padding: 1px 4px;
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* tooltip do calendário */
+.cal-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  padding: 10px 14px;
+  min-width: 240px;
+  max-width: 320px;
+  pointer-events: none;
+  font-size: .82rem;
+}
+.cal-tooltip-titulo {
+  font-weight: 700;
+  color: var(--primary);
+  font-size: .9rem;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+.cal-tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #f0f0f0;
+}
+.cal-tooltip-item:last-child { border: none; }
+.cal-tooltip-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* th sortável */
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.th-sort:hover { background: rgba(255,255,255,.12); }
+.sort-icon { opacity: .5; font-size: .8em; margin-left: 3px; }
+.th-sort.asc  .sort-icon::after { content: ' ↑'; opacity:1; }
+.th-sort.desc .sort-icon::after { content: ' ↓'; opacity:1; }
 
 /* legenda */
 .cal-legenda { font-size: .78rem; color: var(--muted); }
